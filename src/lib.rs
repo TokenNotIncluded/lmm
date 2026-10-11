@@ -7,4 +7,5 @@ pub mod discovery;
 pub mod environment;
 pub mod oauth;
 pub mod plan;
+pub mod provider;
 pub mod restore;

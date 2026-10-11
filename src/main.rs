@@ -5,6 +5,7 @@ use lmm::{
     environment::{self, Environment},
     oauth,
     plan::{Intent, Preview},
+    provider,
 };
 use serde::Serialize;
 use std::{
@@ -34,6 +35,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// 搜索内置服务商预设快照；不读取配置、凭据或网络
+    Presets { query: Option<String> },
     /// 搜索软件目录；目录条目不代表已验证兼容
     Catalog { query: Option<String> },
     /// 规划完整接入；当前版本在未具备适配器时明确阻止写入
@@ -380,6 +383,32 @@ fn execute(cli: &Cli) -> Result<u8, String> {
         && io::stdin().is_terminal()
         && io::stderr().is_terminal();
     let report = match &cli.command {
+        Command::Presets { query } => {
+            let snapshot = provider::search(query.as_deref().unwrap_or_default())
+                .map_err(|_| "内置服务商预设无法读取".to_owned())?;
+            if cli.json {
+                write_json(&snapshot)?;
+            } else {
+                let mut output = io::stdout().lock();
+                writeln!(
+                    output,
+                    "内置服务商预设（Magpie 快照 {}）；配置与连通性未检查，未添加服务商。",
+                    provider::UPSTREAM_REVISION
+                )
+                .map_err(|_| "无法输出服务商预设")?;
+                for preset in &snapshot.presets {
+                    writeln!(
+                        output,
+                        "{} — {} ({})",
+                        preset.id,
+                        preset.name,
+                        preset.kind.as_str()
+                    )
+                    .map_err(|_| "无法输出服务商预设")?;
+                }
+            }
+            return Ok(0);
+        }
         Command::Catalog { query } => {
             let entries = catalog::search(query.as_deref().unwrap_or_default());
             if cli.json {

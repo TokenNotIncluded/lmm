@@ -1,0 +1,15 @@
+LMM CLI (Language Model Mesh)
+
+Extracted from TokenNotIncluded/api.lmm.best, apps/lmm, at parent commit
+b8f775b7a2753c4e374101edf5dfe6c0b066332e. The five original CLI commits and
+their authorship are preserved in this repository history. The CLI remains
+licensed under AGPL-3.0-only; see LICENSE.
+
+The parent project builds on QuantumNous/new-api. Historical attribution and
+notices remain available at:
+https://github.com/TokenNotIncluded/api.lmm.best/blob/b8f775b7a2753c4e374101edf5dfe6c0b066332e/NOTICE
+https://github.com/TokenNotIncluded/api.lmm.best/blob/b8f775b7a2753c4e374101edf5dfe6c0b066332e/FORK.md
+
+Magpie-derived provider preset data is Copyright (c) 2026 yetone, under MIT.
+See third_party/magpie/LICENSE and third_party/magpie/NOTICE.md for the original
+license, pinned upstream source and the scope of the Rust port.

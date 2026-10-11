@@ -3,15 +3,15 @@ name = "lmm-cli"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "LMM CLI preview: software discovery, setup planning, and read-only OAuth access"
+description = "Rust CLI for Language Model Mesh: provider presets, discovery, and read-only OAuth"
 license = "AGPL-3.0-only"
 publish = ["crates-io"]
-repository = "https://github.com/TokenNotIncluded/api.lmm.best"
+repository = "https://github.com/TokenNotIncluded/lmm"
 homepage = "https://api.lmm.best"
 readme = "README.md"
 keywords = ["lmm", "cli", "oauth", "ai"]
 categories = ["command-line-utilities"]
-include = ["Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "src/**", "tests/**", "docs/**"]
+include = ["Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "src/**", "tests/**", "docs/**", "NOTICE", "third_party/**", "scripts/*.py"]
 
 [lib]
 name = "lmm"
