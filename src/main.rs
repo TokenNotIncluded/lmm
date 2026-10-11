@@ -1,11 +1,12 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use lmm::{
     catalog,
     discovery::{self, ProbeContext, TargetStatus},
     environment::{self, Environment},
+    i18n::{self, tr},
     oauth,
     plan::{Intent, Preview},
-    provider,
+    provider, trf,
 };
 use serde::Serialize;
 use std::{
@@ -17,16 +18,20 @@ use std::{
 };
 
 #[derive(Parser)]
-#[command(
-    name = "lmm",
-    version,
-    about = "LMM 安装与接入工具（开发预览：环境检查与操作规划）"
-)]
+#[command(name = "lmm", version, about = tr("cli.about"))]
 struct Cli {
-    /// 输出结构化 JSON；不交互、不输出配置内容
+    #[arg(
+        long = "lang",
+        global = true,
+        value_name = "LANG",
+        value_parser = ["en", "zh-CN"],
+        help = tr("arg.lang")
+    )]
+    _lang: Option<String>,
+    #[arg(help = tr("arg.json"))]
     #[arg(long, global = true)]
     json: bool,
-    /// 无人值守：缺少目标或授权时直接返回
+    #[arg(help = tr("arg.non_interactive"))]
     #[arg(long, global = true)]
     non_interactive: bool,
     #[command(subcommand)]
@@ -35,41 +40,41 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// 搜索内置服务商预设快照；不读取配置、凭据或网络
+    #[command(about = tr("command.presets"))]
     Presets { query: Option<String> },
-    /// 搜索软件目录；目录条目不代表已验证兼容
+    #[command(about = tr("command.catalog"))]
     Catalog { query: Option<String> },
-    /// 规划完整接入；当前版本在未具备适配器时明确阻止写入
+    #[command(about = tr("command.setup"))]
     Setup(SetupArgs),
-    /// 安装软件；不要求 LMM 登录
+    #[command(about = tr("command.install"))]
     Install(OperationArgs),
-    /// 通过浏览器登录，凭据保存在系统凭据库
+    #[command(about = tr("command.login"))]
     Login(LoginArgs),
-    /// 退出 CLI；不撤销独立应用授权
+    #[command(about = tr("command.logout"))]
     Logout(AuthArgs),
-    /// 读取当前授权模型与计费信息，不发起模型调用或更改选择
+    #[command(about = tr("command.models"))]
     Models(AuthArgs),
-    /// 只读检查环境、安装线索与各层验证状态
+    #[command(about = tr("command.status"))]
     Status(TargetArgs),
-    /// 同步 LMM 信息，保留当前服务商与模型
+    #[command(about = tr("command.sync"))]
     Sync(OperationArgs),
-    /// 更新明确纳入管理的软件
+    #[command(about = tr("command.update"))]
     Update(OperationArgs),
-    /// 只读诊断；--fix 仍受适配器能力与确认范围限制
+    #[command(about = tr("command.doctor"))]
     Doctor(DoctorArgs),
-    /// 按字段恢复 LMM 变更，保留后续修改
+    #[command(about = tr("command.restore"))]
     Restore(OperationArgs),
-    /// 解除指定软件接入并撤销对应授权
+    #[command(about = tr("command.disconnect"))]
     Disconnect(RequiredTarget),
-    /// 卸载已确认纳入管理的软件，默认保留数据
+    #[command(about = tr("command.uninstall"))]
     Uninstall(RequiredTarget),
-    /// 按当前配置启动指定软件
+    #[command(about = tr("command.run"))]
     Run(RequiredTarget),
 }
 
 #[derive(Args)]
 struct AuthArgs {
-    /// 信任的 LMM HTTPS origin（自托管时显式指定）
+    #[arg(help = tr("arg.issuer"))]
     #[arg(long, default_value = oauth::DEFAULT_ISSUER)]
     issuer: String,
 }
@@ -78,19 +83,19 @@ struct AuthArgs {
 struct LoginArgs {
     #[command(flatten)]
     auth: AuthArgs,
-    /// 只显示登录链接；仍需要浏览器能访问当前机器的回环端口
+    #[arg(help = tr("arg.no_browser"))]
     #[arg(long)]
     no_browser: bool,
-    /// 浏览器回调等待上限（秒）
+    #[arg(help = tr("arg.timeout"))]
     #[arg(long, default_value_t = 180, value_parser = clap::value_parser!(u64).range(10..=600))]
     timeout: u64,
 }
 
 #[derive(Args)]
 struct TargetArgs {
-    /// 精确的软件目录 ID，例如 astrbot 或 cc-switch
+    #[arg(help = tr("arg.software"))]
     software: Option<String>,
-    /// 明确的本地实例根目录；不自动扫描远程或 Docker 实例
+    #[arg(help = tr("arg.instance"))]
     #[arg(long, requires = "software")]
     instance: Option<PathBuf>,
 }
@@ -99,13 +104,13 @@ struct TargetArgs {
 struct OperationArgs {
     #[command(flatten)]
     target: TargetArgs,
-    /// 仅包含当前环境中已安装且受支持的目标；更新还要求管理授权
+    #[arg(help = tr("arg.all"))]
     #[arg(long, conflicts_with_all = ["software", "instance"])]
     all: bool,
-    /// 只生成计划，不执行修改
+    #[arg(help = tr("arg.dry_run"))]
     #[arg(long)]
     dry_run: bool,
-    /// 确认已展示范围；不代表允许切换账号、服务商或付费测试
+    #[arg(help = tr("arg.yes"))]
     #[arg(long)]
     yes: bool,
 }
@@ -114,10 +119,10 @@ struct OperationArgs {
 struct SetupArgs {
     #[command(flatten)]
     operation: OperationArgs,
-    /// 仅添加 LMM，保留当前选择
+    #[arg(help = tr("arg.add_only"))]
     #[arg(long, conflicts_with = "activate")]
     add_only: bool,
-    /// 明确请求添加并切换到 LMM（不表示已执行）
+    #[arg(help = tr("arg.activate"))]
     #[arg(long)]
     activate: bool,
 }
@@ -126,18 +131,19 @@ struct SetupArgs {
 struct DoctorArgs {
     #[command(flatten)]
     target: TargetArgs,
-    /// 请求修复已获允许的 LMM 配置；不会绕过能力检查
+    #[arg(help = tr("arg.fix"))]
     #[arg(long)]
     fix: bool,
-    /// 生成可主动分享的摘要，去除路径和配置内容
+    #[arg(help = tr("arg.report"))]
     #[arg(long)]
     report: bool,
 }
 
 #[derive(Args)]
 struct RequiredTarget {
+    #[arg(help = tr("arg.software"))]
     software: String,
-    #[arg(long)]
+    #[arg(long, help = tr("arg.instance"))]
     instance: Option<PathBuf>,
 }
 
@@ -199,14 +205,14 @@ fn inspect(target: &TargetArgs, context: &ProbeContext) -> Result<Vec<TargetStat
         .as_ref()
         .is_some_and(|path| !path.is_absolute())
     {
-        return Err("--instance 必须是当前环境的绝对本地路径；远程与容器适配器尚未提供".into());
+        return Err(tr("error.absolute_instance").into());
     }
     match target.software.as_deref() {
         Some(id) => {
-            let software = catalog::find(id)
-                .ok_or_else(|| "未知软件 ID；运行 lmm catalog 查看精确名称".to_owned())?;
+            let software =
+                catalog::find(id).ok_or_else(|| tr("error.unknown_software").to_owned())?;
             if target.instance.is_some() && !matches!(id, "astrbot" | "cc-switch") {
-                return Err("此软件尚未实现实例选择，不能忽略 --instance 后继续操作".into());
+                return Err(tr("error.unsupported_instance").into());
             }
             Ok(vec![discovery::discover(
                 software,
@@ -223,18 +229,17 @@ fn inspect(target: &TargetArgs, context: &ProbeContext) -> Result<Vec<TargetStat
 
 fn select_software() -> Result<String, String> {
     let mut output = io::stderr().lock();
-    writeln!(output, "选择要规划接入的软件（当前均未完成集成验证）：")
-        .map_err(|_| "无法显示选择菜单")?;
+    writeln!(output, "{}", tr("menu.title")).map_err(|_| tr("error.menu_output"))?;
     for (i, software) in catalog::SOFTWARE.iter().enumerate() {
         writeln!(output, "  {}. {} ({})", i + 1, software.name, software.id)
-            .map_err(|_| "无法显示选择菜单")?;
+            .map_err(|_| tr("error.menu_output"))?;
     }
-    write!(output, "输入序号，或直接回车取消：").map_err(|_| "无法显示选择菜单")?;
-    output.flush().map_err(|_| "无法显示选择菜单")?;
+    write!(output, "{}", tr("menu.prompt")).map_err(|_| tr("error.menu_output"))?;
+    output.flush().map_err(|_| tr("error.menu_output"))?;
     let mut input = String::new();
     io::stdin()
         .read_line(&mut input)
-        .map_err(|_| "无法读取选择")?;
+        .map_err(|_| tr("error.menu_input"))?;
     let index = input
         .trim()
         .parse::<usize>()
@@ -243,7 +248,7 @@ fn select_software() -> Result<String, String> {
     index
         .and_then(|index| catalog::SOFTWARE.get(index))
         .map(|software| software.id.to_owned())
-        .ok_or_else(|| "未选择目标；没有执行任何修改".to_owned())
+        .ok_or_else(|| tr("error.no_selection").to_owned())
 }
 
 fn operation_report(
@@ -256,7 +261,7 @@ fn operation_report(
     let selected;
     let target = if args.target.software.is_none() && !args.all {
         if !interactive {
-            return Err("无人值守模式需要明确软件或 --all；没有执行任何修改".into());
+            return Err(tr("error.target_required").into());
         }
         selected = TargetArgs {
             software: Some(select_software()?),
@@ -278,38 +283,40 @@ fn operation_report(
         let mut preview = Preview::blocked(target.software, intent);
         if name == "install" {
             preview.account = "not_required";
-            preview.blockers = vec!["缺少经过验证的软件版本、下载来源校验及安装适配器"];
+            preview.blockers = vec![tr("blocker.install")];
         } else if name == "restore" {
             preview.account = "not_required";
-            preview.blockers = vec!["尚未接入目标的变更日志与原生事务适配器，不能直接覆盖备份"];
+            preview.blockers = vec![tr("blocker.restore")];
         }
         report.plans.push(preview);
     }
     if args.all {
-        report.notes.push(
-            "当前版本没有经过验证的自动接入适配器，--all 没有可执行目标；未安装或修改任何软件",
-        );
+        report.notes.push(tr("note.all"));
     }
     if args.dry_run {
-        report
-            .notes
-            .push("仅规划；阻塞项仍需解决，不能作为接入完成的证据");
+        report.notes.push(tr("note.dry_run"));
     }
     if args.yes {
-        report.notes.push("--yes 不会跳过缺失能力、授权或费用限制");
+        report.notes.push(tr("note.yes"));
     }
     if name == "install" {
-        report
-            .notes
-            .push("安装本身不需要 LMM 登录；当前缺少经过验证的安装适配器");
+        report.notes.push(tr("note.install"));
     }
     Ok(report)
 }
 
 fn write_json(value: &impl Serialize) -> Result<(), String> {
     let mut output = io::stdout().lock();
-    serde_json::to_writer_pretty(&mut output, value).map_err(|_| "无法输出 JSON".to_owned())?;
-    writeln!(output).map_err(|_| "无法输出 JSON".to_owned())
+    serde_json::to_writer_pretty(&mut output, value).map_err(|_| tr("error.json_output").to_owned())?;
+    writeln!(output).map_err(|_| tr("error.json_output").to_owned())
+}
+
+fn observation_label(observation: discovery::Observation) -> &'static str {
+    match observation {
+        discovery::Observation::Present => tr("observation.present"),
+        discovery::Observation::NotFound => tr("observation.not_found"),
+        discovery::Observation::Unknown => tr("observation.unknown"),
+    }
 }
 
 fn emit(report: &Report, json: bool) -> Result<(), String> {
@@ -322,48 +329,48 @@ fn emit(report: &Report, json: bool) -> Result<(), String> {
         "LMM · {} · {} / {}",
         report.command, report.environment.os, report.environment.arch
     )
-    .map_err(|_| "无法输出结果")?;
+    .map_err(|_| tr("error.output"))?;
     writeln!(
         output,
-        "范围：当前用户、当前运行环境；检查时间：{}（Unix 秒）",
-        report.checked_at
+        "{}",
+        trf!("output.scope", timestamp = report.checked_at)
     )
-    .map_err(|_| "无法输出结果")?;
+    .map_err(|_| tr("error.output"))?;
     for target in &report.targets {
         writeln!(
             output,
-            "\n{}：安装状态无法确认；安装管理者、配置管理者均未知",
-            target.software
+            "{}",
+            trf!("output.target", software = target.software)
         )
-        .map_err(|_| "无法输出结果")?;
+        .map_err(|_| tr("error.output"))?;
         for evidence in &target.evidence {
             // Debug formatting escapes control characters in user-controlled paths.
             writeln!(
                 output,
-                "  {:?}: {:?}（仅路径线索）",
-                evidence.path, evidence.observation
+                "{}",
+                trf!(
+                    "output.evidence",
+                    path = format!("{:?}", evidence.path),
+                    observation = observation_label(evidence.observation)
+                )
             )
-            .map_err(|_| "无法输出结果")?;
+            .map_err(|_| tr("error.output"))?;
         }
-        writeln!(
-            output,
-            "  LMM 添加/启用：未知；授权、连通性、目标调用、流式及工具调用：未检查"
-        )
-        .map_err(|_| "无法输出结果")?;
+        writeln!(output, "{}", tr("output.verification")).map_err(|_| tr("error.output"))?;
     }
     for plan in &report.plans {
         writeln!(
             output,
-            "\n{} 计划已阻止：无配置修改、无付费调用、无重启",
-            plan.software
+            "{}",
+            trf!("output.blocked", software = plan.software)
         )
-        .map_err(|_| "无法输出结果")?;
+        .map_err(|_| tr("error.output"))?;
         for blocker in &plan.blockers {
-            writeln!(output, "  - {blocker}").map_err(|_| "无法输出结果")?;
+            writeln!(output, "  - {blocker}").map_err(|_| tr("error.output"))?;
         }
     }
     for note in &report.notes {
-        writeln!(output, "\n{note}").map_err(|_| "无法输出结果")?;
+        writeln!(output, "\n{note}").map_err(|_| tr("error.output"))?;
     }
     Ok(())
 }
@@ -375,7 +382,7 @@ fn execute(cli: &Cli) -> Result<u8, String> {
             Command::Login(_) | Command::Logout(_) | Command::Models(_)
         )
     {
-        return Err("当前系统凭据库可能需要解锁交互；OAuth 命令尚不支持 --non-interactive，未访问凭据或网络".into());
+        return Err(tr("error.auth_non_interactive").into());
     }
     let context = context();
     let interactive = !cli.json
@@ -385,17 +392,17 @@ fn execute(cli: &Cli) -> Result<u8, String> {
     let report = match &cli.command {
         Command::Presets { query } => {
             let snapshot = provider::search(query.as_deref().unwrap_or_default())
-                .map_err(|_| "内置服务商预设无法读取".to_owned())?;
+                .map_err(|_| tr("error.presets_read").to_owned())?;
             if cli.json {
                 write_json(&snapshot)?;
             } else {
                 let mut output = io::stdout().lock();
                 writeln!(
                     output,
-                    "内置服务商预设（Magpie 快照 {}）；配置与连通性未检查，未添加服务商。",
-                    provider::UPSTREAM_REVISION
+                    "{}",
+                    trf!("presets.title", revision = provider::UPSTREAM_REVISION)
                 )
-                .map_err(|_| "无法输出服务商预设")?;
+                .map_err(|_| tr("error.presets_output"))?;
                 for preset in &snapshot.presets {
                     writeln!(
                         output,
@@ -404,7 +411,7 @@ fn execute(cli: &Cli) -> Result<u8, String> {
                         preset.name,
                         preset.kind.as_str()
                     )
-                    .map_err(|_| "无法输出服务商预设")?;
+                    .map_err(|_| tr("error.presets_output"))?;
                 }
             }
             return Ok(0);
@@ -416,7 +423,18 @@ fn execute(cli: &Cli) -> Result<u8, String> {
             } else {
                 let mut output = io::stdout().lock();
                 for software in entries {
-                    writeln!(output, "{} — {}\n  {}\n  来源：{}\n  安装/接入：尚未支持；维护：仅本地线索检查；兼容版本/平台/场景：未验证\n", software.id, software.name, software.purpose, software.source).map_err(|_| "无法输出目录")?;
+                    writeln!(
+                        output,
+                        "{}",
+                        trf!(
+                            "catalog.entry",
+                            id = software.id,
+                            name = software.name,
+                            purpose = tr(software.purpose),
+                            source = software.source
+                        )
+                    )
+                    .map_err(|_| tr("error.catalog_output"))?;
                 }
             }
             return Ok(0);
@@ -425,12 +443,10 @@ fn execute(cli: &Cli) -> Result<u8, String> {
         Command::Doctor(args) => {
             let mut report = Report::new("doctor", inspect(&args.target, &context)?);
             report.outcome = "incomplete";
-            report.notes.push("诊断未完成：仅检查本地路径线索；请核对目标实例、版本及配置管理关系。没有执行网络或付费测试");
+            report.notes.push(tr("note.doctor"));
             if args.fix {
                 report.outcome = "blocked";
-                report
-                    .notes
-                    .push("当前没有经过验证的修复适配器；未修改配置");
+                report.notes.push(tr("note.fix"));
             }
             if args.report {
                 report.redact();
@@ -464,20 +480,17 @@ fn execute(cli: &Cli) -> Result<u8, String> {
         }
         Command::Login(args) => {
             if !interactive {
-                return Err("登录需要浏览器授权；请在交互终端运行 lmm login。无人值守模式不会等待或代替用户同意".into());
+                return Err(tr("error.login_interactive").into());
             }
             let result = oauth::login(
                 &args.auth.issuer,
                 std::time::Duration::from_secs(args.timeout),
                 |url| {
                     let mut output = io::stderr().lock();
-                    writeln!(
-                        output,
-                        "请在浏览器确认 LMM CLI 授权（仅目录和余额读取，不迁移任何应用）：\n{url}"
-                    )
+                    writeln!(output, "{}", trf!("login.authorize", url = url))
                     .map_err(|_| oauth::AuthError::Output)?;
                     if !args.no_browser && open::that_detached(url).is_err() {
-                        writeln!(output, "浏览器未能自动打开，请在本机浏览器打开上述链接。")
+                        writeln!(output, "{}", tr("login.browser_failed"))
                             .map_err(|_| oauth::AuthError::Output)?;
                     }
                     Ok(())
@@ -488,8 +501,8 @@ fn execute(cli: &Cli) -> Result<u8, String> {
                     if cli.json {
                         write_json(&status)?;
                     } else {
-                        writeln!(io::stdout().lock(), "LMM CLI 已登录，凭据已保存到系统凭据库。尚未授予应用调用权限；可运行 lmm models。")
-                            .map_err(|_| "无法输出登录结果")?;
+                        writeln!(io::stdout().lock(), "{}", tr("login.success"))
+                            .map_err(|_| tr("error.login_output"))?;
                     }
                     Ok(0)
                 }
@@ -504,11 +517,8 @@ fn execute(cli: &Cli) -> Result<u8, String> {
                             &serde_json::json!({"outcome": outcome, "applications_changed": false, "other_application_grants": "not_checked"}),
                         )?;
                     } else {
-                        writeln!(
-                            io::stdout().lock(),
-                            "CLI 已退出；其他应用授权未撤销，当前版本尚不能列出这些授权。"
-                        )
-                        .map_err(|_| "无法输出退出结果")?;
+                        writeln!(io::stdout().lock(), "{}", tr("logout.success"))
+                            .map_err(|_| tr("error.logout_output"))?;
                     }
                     Ok(0)
                 }
@@ -522,13 +532,26 @@ fn execute(cli: &Cli) -> Result<u8, String> {
                         write_json(&catalog)?;
                     } else {
                         let mut output = io::stdout().lock();
-                        writeln!(
-                            output,
-                            "当前授权模型（不代表目标软件兼容；价格可能随使用变化）："
-                        )
-                        .map_err(|_| "无法输出模型")?;
+                        writeln!(output, "{}", tr("models.title"))
+                            .map_err(|_| tr("error.models_output"))?;
                         for model in &catalog.models {
-                            writeln!(output, "{:?} · {:?} · {:?}\n  价格单位：{:?} / {:?}；输入：{:?}，输出：{:?}，每次请求：{:?}；依据：{:?}\n  null/None 表示未知；未调用或切换模型。", model.id, model.upstream_model, model.group, model.pricing.currency, model.pricing.unit, model.pricing.input, model.pricing.output, model.pricing.request, model.pricing.price_basis).map_err(|_| "无法输出模型")?;
+                            writeln!(
+                                output,
+                                "{}",
+                                trf!(
+                                    "models.entry",
+                                    id = format!("{:?}", model.id),
+                                    upstream = format!("{:?}", model.upstream_model),
+                                    group = format!("{:?}", model.group),
+                                    currency = format!("{:?}", model.pricing.currency),
+                                    unit = format!("{:?}", model.pricing.unit),
+                                    input = format!("{:?}", model.pricing.input),
+                                    output = format!("{:?}", model.pricing.output),
+                                    request = format!("{:?}", model.pricing.request),
+                                    basis = format!("{:?}", model.pricing.price_basis)
+                                )
+                            )
+                            .map_err(|_| tr("error.models_output"))?;
                         }
                     }
                     Ok(0)
@@ -548,9 +571,7 @@ fn execute(cli: &Cli) -> Result<u8, String> {
             };
             let mut report = Report::new(name, inspect(&target, &context)?);
             report.outcome = "blocked";
-            report
-                .notes
-                .push("未实现该目标的安全执行适配器；未启动或卸载软件，未修改配置或撤销授权");
+            report.notes.push(tr("note.execution"));
             report
         }
     };
@@ -565,7 +586,12 @@ fn execute(cli: &Cli) -> Result<u8, String> {
 fn auth_failure(error: oauth::AuthError, json: bool) -> Result<u8, String> {
     if json {
         write_json(
-            &serde_json::json!({"schema_version":1,"outcome":"blocked","error":error.to_string()}),
+            &serde_json::json!({
+                "schema_version": 1,
+                "outcome": "blocked",
+                "error": error.to_string(),
+                "error_code": error.code(),
+            }),
         )?;
     } else {
         eprintln!("lmm: {error}");
@@ -573,8 +599,39 @@ fn auth_failure(error: oauth::AuthError, json: bool) -> Result<u8, String> {
     Ok(3)
 }
 
+fn localize_help(command: clap::Command) -> clap::Command {
+    command
+        .help_template(tr("help.template"))
+        .subcommand_help_heading(tr("help.commands"))
+        .mut_args(|arg| {
+            let arg = match arg.get_id().as_str() {
+                "help" => arg.help(tr("help.flag")),
+                "version" => arg.help(tr("help.version")),
+                _ => arg,
+            };
+            let heading = if arg.is_positional() {
+                tr("help.arguments")
+            } else {
+                tr("help.options")
+            };
+            arg.help_heading(heading)
+        })
+        .mut_subcommands(|command| {
+            if command.get_name() == "help" {
+                command.about(tr("help.subcommand"))
+            } else {
+                localize_help(command)
+            }
+        })
+}
+
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let args: Vec<_> = env::args_os().collect();
+    i18n::init_from_args(&args);
+    let mut command = Cli::command();
+    command.build();
+    let matches = localize_help(command).get_matches_from(args);
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     match execute(&cli) {
         Ok(code) => ExitCode::from(code),
         Err(error) => {

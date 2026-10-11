@@ -1,5 +1,6 @@
 //! Explicit project identities and independently stated integration capabilities.
 
+use crate::i18n::{self, Locale};
 use serde::Serialize;
 
 /// A capability with no verified adapter must never be promoted by discovery.
@@ -21,7 +22,8 @@ pub struct Software {
     pub name: &'static str,
     /// Canonical project identity, not a download mirror.
     pub source: &'static str,
-    /// Intended use.
+    /// Message key for intended use; serialized as a localized description.
+    #[serde(serialize_with = "i18n::serialize_message")]
     pub purpose: &'static str,
     /// Installation capability of this LMM release.
     pub installation: Capability,
@@ -61,42 +63,42 @@ pub static SOFTWARE: &[Software] = &[
         "astrbot",
         "AstrBot",
         "https://github.com/AstrBotDevs/AstrBot",
-        "消息平台 Agent 与机器人运行环境",
+        "software.astrbot",
         &["astrbot"],
     ),
     software(
         "cc-switch",
         "CC Switch",
         "https://github.com/farion1231/cc-switch",
-        "服务商配置管理与本地路由",
+        "software.cc_switch",
         &["cc-switch"],
     ),
     software(
         "claude-code",
         "Claude Code CLI",
         "https://github.com/anthropics/claude-code",
-        "终端编程助手",
+        "software.coding_cli",
         &["claude"],
     ),
     software(
         "codex",
         "OpenAI Codex CLI",
         "https://github.com/openai/codex",
-        "终端编程助手",
+        "software.coding_cli",
         &["codex"],
     ),
     software(
         "gemini-cli",
         "Gemini CLI",
         "https://github.com/google-gemini/gemini-cli",
-        "终端编程助手",
+        "software.coding_cli",
         &["gemini"],
     ),
     software(
         "pi",
         "Pi coding agent",
         "https://github.com/badlogic/pi-mono",
-        "终端 Agent，LMM Provider 已有独立项目",
+        "software.pi",
         &["pi"],
     ),
 ];
@@ -112,9 +114,14 @@ pub fn search(query: &str) -> Vec<&'static Software> {
     SOFTWARE
         .iter()
         .filter(|item| {
-            [item.id, item.name, item.purpose]
+            [item.id, item.name]
                 .iter()
                 .any(|text| text.to_lowercase().contains(&query))
+                || Locale::ALL.iter().any(|&locale| {
+                    i18n::text(locale, item.purpose)
+                        .to_lowercase()
+                        .contains(&query)
+                })
         })
         .collect()
 }

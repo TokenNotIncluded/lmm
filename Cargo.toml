@@ -11,7 +11,7 @@ homepage = "https://api.lmm.best"
 readme = "README.md"
 keywords = ["lmm", "cli", "oauth", "ai"]
 categories = ["command-line-utilities"]
-include = ["Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "src/**", "tests/**", "docs/**", "NOTICE", "third_party/**", "scripts/*.py"]
+include = ["Cargo.toml", "Cargo.lock", "README.md", "README.zh-CN.md", "locales/**", "LICENSE", "src/**", "tests/**", "docs/**", "NOTICE", "third_party/**", "scripts/*.py"]
 
 [lib]
 name = "lmm"
