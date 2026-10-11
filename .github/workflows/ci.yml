@@ -29,5 +29,12 @@ jobs:
         run: cargo test --locked
       - name: Check lints
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - name: Check package contents
-        run: cargo package --locked --list
+      - name: Verify source package
+        run: cargo package --locked
+      - name: Keep the checked source package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lmm-cli-source-${{ github.sha }}
+          path: target/package/*.crate
+          retention-days: 7
+          if-no-files-found: error
