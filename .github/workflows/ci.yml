@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("mise.toml", "rb"))["tools"]["rust"]["version"])')
+          rustup toolchain install "$version" --profile minimal --component clippy --component rustfmt
+          rustup override set "$version"
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Run tests
+        run: cargo test --locked
+      - name: Check lints
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+      - name: Check package contents
+        run: cargo package --locked --list
