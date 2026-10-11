@@ -13,6 +13,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned formatter
+        shell: bash
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("mise.toml", "rb"))["tools"]["rust"]["version"])')
+          rustup toolchain install "$version" --profile minimal --component rustfmt
+          rustup override set "$version"
+      - name: Check formatting
+        run: |
+          cargo fmt --all
+          git diff --exit-code > "$RUNNER_TEMP/rustfmt.patch"
+      - name: Keep formatting corrections on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustfmt-patch
+          path: ${{ runner.temp }}/rustfmt.patch
+          retention-days: 7
+          if-no-files-found: ignore
   check:
     runs-on: ubuntu-latest
     steps:
@@ -21,16 +43,24 @@ jobs:
         shell: bash
         run: |
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("mise.toml", "rb"))["tools"]["rust"]["version"])')
-          rustup toolchain install "$version" --profile minimal --component clippy --component rustfmt
+          rustup toolchain install "$version" --profile minimal --component clippy
           rustup override set "$version"
-      - name: Check formatting
-        run: cargo fmt --all --check
+      - name: Check translations
+        run: python3 scripts/check-i18n.py
       - name: Run tests
-        run: cargo test --locked
+        run: cargo test --locked 2>&1 | tee "$RUNNER_TEMP/tests.log"
       - name: Check lints
-        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings 2>&1 | tee "$RUNNER_TEMP/clippy.log"
       - name: Verify source package
         run: cargo package --locked
+      - name: Keep check logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-logs
+          path: ${{ runner.temp }}/*.log
+          retention-days: 7
+          if-no-files-found: ignore
       - name: Keep the checked source package
         uses: actions/upload-artifact@v4
         with:

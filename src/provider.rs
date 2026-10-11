@@ -1,6 +1,7 @@
 //! Read-only built-in provider presets ported from Magpie's MIT data.
 //! No provider configuration, credentials, or network requests are accessed.
 
+use crate::i18n::{Locale, Message, msg};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -17,6 +18,16 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// Localized category label; as_str and serialized values stay stable.
+    pub const fn label(self) -> Message {
+        msg(match self {
+            Self::Vendor => "kind.vendor",
+            Self::Relay => "kind.relay",
+            Self::Local => "kind.local",
+            Self::Remote => "kind.remote",
+        })
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Vendor => "vendor",
@@ -67,6 +78,9 @@ pub fn search(query: &str) -> Result<Snapshot, serde_json::Error> {
                 || preset.id.to_lowercase().contains(&query)
                 || preset.name.to_lowercase().contains(&query)
                 || preset.kind.as_str().contains(&query)
+                || Locale::ALL.iter().any(|locale| {
+                    locale.text(preset.kind.label().key()).to_lowercase().contains(&query)
+                })
         })
         .collect();
     Ok(Snapshot {

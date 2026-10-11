@@ -1,6 +1,6 @@
 //! Bounded local probes. Finding a path is evidence, not proof of installation.
 
-use crate::catalog::Software;
+use crate::{catalog::Software, i18n::{Message, msg}};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -22,6 +22,17 @@ pub enum Observation {
     NotFound,
     /// Access, file type, symlink or size prevented a trustworthy check.
     Unknown,
+}
+
+impl Observation {
+    /// Localized display label; serialized observation values remain unchanged.
+    pub const fn label(self) -> Message {
+        msg(match self {
+            Self::Present => "observation.present",
+            Self::NotFound => "observation.not_found",
+            Self::Unknown => "observation.unknown",
+        })
+    }
 }
 
 /// Public evidence contains no configuration values or credentials.
@@ -189,7 +200,7 @@ pub fn fingerprint(path: &Path) -> io::Result<String> {
     if !meta.is_file() || meta.len() > MAX_CONFIG_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "not a bounded regular configuration file",
+            msg("error.config_shape"),
         ));
     }
     let mut data = Vec::new();
@@ -199,7 +210,7 @@ pub fn fingerprint(path: &Path) -> io::Result<String> {
     if data.len() as u64 > MAX_CONFIG_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "configuration exceeds size limit",
+            msg("error.config_size"),
         ));
     }
     Ok(format!("{:x}", Sha256::digest(data)))
