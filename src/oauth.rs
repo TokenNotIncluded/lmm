@@ -7,6 +7,7 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
+use crate::i18n::tr;
 use protocol::{Credential, TokenResponse};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -26,36 +27,56 @@ const SCOPE: &str = "catalog:read balance:read";
 /// Errors contain fixed messages only: never HTTP bodies, URLs or credentials.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum AuthError {
-    #[error("issuer 必须是规范的 HTTPS 域名 origin，不含端口、路径、查询或凭据")]
+    #[error("{}", tr("oauth.invalid_issuer"))]
     InvalidIssuer,
-    #[error("LMM 网络请求失败；请检查网络和服务端是否已启用 lmm 客户端")]
+    #[error("{}", tr("oauth.network"))]
     Network,
-    #[error("LMM OAuth 响应不符合约定，已停止授权")]
+    #[error("{}", tr("oauth.invalid_response"))]
     InvalidResponse,
-    #[error("授权已取消或被拒绝")]
+    #[error("{}", tr("oauth.denied"))]
     Denied,
-    #[error("登录等待超时；没有继续发起请求")]
+    #[error("{}", tr("oauth.timeout"))]
     Timeout,
-    #[error("无法绑定本机 OAuth 回调端口")]
+    #[error("{}", tr("oauth.callback"))]
     Callback,
-    #[error(
-        "无法访问系统凭据库；请解锁 Keychain、Credential Manager 或 Secret Service，不会回退到明文文件"
-    )]
+    #[error("{}", tr("oauth.credential_store"))]
     CredentialStore,
-    #[error("尚未登录；请先运行 lmm login")]
+    #[error("{}", tr("oauth.not_logged_in"))]
     NotLoggedIn,
-    #[error("已有 CLI 登录；切换账号请先 lmm logout，不会迁移应用授权")]
+    #[error("{}", tr("oauth.already_logged_in"))]
     AlreadyLoggedIn,
-    #[error("上次刷新未可靠完成；不会重放旧刷新令牌，请先 logout 再 login")]
+    #[error("{}", tr("oauth.refresh_blocked"))]
     RefreshBlocked,
-    #[error("另一项 LMM 授权操作正在运行，或无法建立当前用户的安全锁")]
+    #[error("{}", tr("oauth.busy"))]
     Busy,
-    #[error("服务端返回未授权；请重新登录，或检查 lmm 客户端是否已部署")]
+    #[error("{}", tr("oauth.unauthorized"))]
     Unauthorized,
-    #[error("新授权未能保存，且无法确认已撤销；请在 LMM 授权页检查 LMM CLI 授权")]
+    #[error("{}", tr("oauth.unstored_grant"))]
     UnstoredGrant,
-    #[error("无法输出登录入口；登录已停止")]
+    #[error("{}", tr("oauth.output"))]
     Output,
+}
+
+impl AuthError {
+    /// Stable machine-readable code, independent of the display language.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidIssuer => "oauth.invalid_issuer",
+            Self::Network => "oauth.network",
+            Self::InvalidResponse => "oauth.invalid_response",
+            Self::Denied => "oauth.denied",
+            Self::Timeout => "oauth.timeout",
+            Self::Callback => "oauth.callback",
+            Self::CredentialStore => "oauth.credential_store",
+            Self::NotLoggedIn => "oauth.not_logged_in",
+            Self::AlreadyLoggedIn => "oauth.already_logged_in",
+            Self::RefreshBlocked => "oauth.refresh_blocked",
+            Self::Busy => "oauth.busy",
+            Self::Unauthorized => "oauth.unauthorized",
+            Self::UnstoredGrant => "oauth.unstored_grant",
+            Self::Output => "oauth.output",
+        }
+    }
 }
 
 /// Login information deliberately excludes tokens, account secrets and scopes with group IDs.

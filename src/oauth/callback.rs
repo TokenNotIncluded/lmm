@@ -1,4 +1,5 @@
 use super::AuthError;
+use crate::i18n::{self, Locale};
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
@@ -47,22 +48,9 @@ impl Callback {
                         break;
                     }
                     let result = read_request(&mut stream, &host, issuer, state, remaining);
-                    let body = if result.is_ok() {
-                        "Authorization received. Return to LMM CLI to check completion."
-                    } else {
-                        "Invalid or denied authorization. Return to LMM CLI."
-                    };
-                    let status = if result.is_ok() {
-                        "200 OK"
-                    } else {
-                        "400 Bad Request"
-                    };
+                    let response = callback_response(result.is_ok(), i18n::locale());
                     let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
-                    let _ = write!(
-                        stream,
-                        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    );
+                    let _ = stream.write_all(response.as_bytes());
                     match result {
                         Ok(code) => return Ok(code),
                         Err(AuthError::Denied) => return Err(AuthError::Denied),
@@ -78,6 +66,25 @@ impl Callback {
         }
         Err(AuthError::Timeout)
     }
+}
+
+/// Fixed plain-text output; neither authorization codes nor request text are echoed.
+fn callback_response(accepted: bool, locale: Locale) -> String {
+    let body = if accepted {
+        i18n::text(locale, "callback.received")
+    } else {
+        i18n::text(locale, "callback.invalid")
+    };
+    let status = if accepted {
+        "200 OK"
+    } else {
+        "400 Bad Request"
+    };
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nContent-Language: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n{body}",
+        body.len(),
+        locale.tag()
+    )
 }
 
 fn read_request(
@@ -203,6 +210,29 @@ mod tests {
         query.extend_pairs([("state", "expected"), ("iss", "https://api.lmm.best")]);
         query.extend_pairs(extra.iter().copied());
         format!("/oauth/lmm/callback?{}", query.finish())
+    }
+
+    #[test]
+    fn callback_translation_uses_utf8_byte_lengths_and_fixed_language_headers() {
+        for locale in Locale::ALL {
+            for accepted in [true, false] {
+                let response = callback_response(accepted, locale);
+                let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+                let length: usize = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("Content-Length: "))
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                assert_eq!(length, body.len());
+                assert!(headers.contains(&format!("Content-Language: {}", locale.tag())));
+                assert!(headers.contains("Content-Type: text/plain; charset=utf-8"));
+                assert!(headers.contains("Cache-Control: no-store"));
+                assert!(headers.contains("Content-Security-Policy: default-src 'none'"));
+                assert!(body.contains("LMM CLI"));
+                assert!(!body.contains("callback."));
+            }
+        }
     }
 
     #[test]

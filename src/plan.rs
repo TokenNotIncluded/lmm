@@ -1,5 +1,6 @@
 //! Policy decisions shared by future adapters; discovery never authorizes a write.
 
+use crate::i18n::tr;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -43,13 +44,13 @@ pub enum Activation {
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PlanError {
     /// Unknown state must not be silently replaced with defaults.
-    #[error("无法确认当前服务商；需要先读取选定实例的实际配置")]
+    #[error("{}", tr("plan.unknown_selection"))]
     UnknownSelection,
     /// A revoked application must not be silently granted permission again.
-    #[error("应用授权已撤销；需要明确确认重新授权")]
+    #[error("{}", tr("plan.revoked_grant"))]
     RevokedGrant,
     /// Cost checks must use a server-enforced reservation.
-    #[error("付费验证需要明确同意、已知报价和服务端可执行的消费上限")]
+    #[error("{}", tr("plan.paid_verification"))]
     PaidVerificationNotAuthorized,
 }
 
@@ -130,9 +131,9 @@ impl Preview {
             paid_test: false,
             restart: false,
             blockers: vec![
-                "此版本尚无经过验证的目标软件写入适配器",
-                "CLI 登录只允许读取目录和余额；目标应用独立授权尚未接入",
-                "未验证软件版本、配置管理关系及实际调用路径",
+                tr("blocker.adapter"),
+                tr("blocker.application_grant"),
+                tr("blocker.compatibility"),
             ],
         }
     }
