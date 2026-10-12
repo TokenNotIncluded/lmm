@@ -2,7 +2,6 @@ use super::{AuthError, protocol::Credential};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
-    env,
     fs::{self, File, OpenOptions},
     path::PathBuf,
 };
@@ -73,18 +72,8 @@ impl SecretStore for SystemStore {
 }
 
 fn lock_directory() -> Result<PathBuf, AuthError> {
-    let base = if cfg!(windows) {
-        env::var_os("LOCALAPPDATA").map(PathBuf::from)
-    } else if cfg!(target_os = "macos") {
-        crate::environment::user_home().map(|home| home.join("Library/Application Support"))
-    } else {
-        env::var_os("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .or_else(|| crate::environment::user_home().map(|home| home.join(".local/state")))
-    }
-    .filter(|path| path.is_absolute())
-    .ok_or(AuthError::Busy)?;
-    Ok(base.join("lmm"))
+    crate::environment::user_directory(crate::environment::UserDirectory::State)
+        .ok_or(AuthError::Busy)
 }
 
 /// The lock stores no secrets; OS process exit releases it even after cancellation.
@@ -124,6 +113,19 @@ fn lock_at(directory: &std::path::Path) -> Result<File, AuthError> {
         options.mode(0o600);
     }
     let file = options.open(path).map_err(|_| AuthError::Busy)?;
+    // The creation mode does not fix an existing unsafe lock file.
+    // Verify the opened file rather than changing its permissions.
+    let metadata = file.metadata().map_err(|_| AuthError::Busy)?;
+    if !metadata.is_file() {
+        return Err(AuthError::Busy);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(AuthError::Busy);
+        }
+    }
     file.try_lock_exclusive().map_err(|_| AuthError::Busy)?;
     Ok(file)
 }
@@ -155,5 +157,38 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         symlink(root.path().join("elsewhere"), path.join("oauth.lock")).unwrap();
         assert!(matches!(lock_at(&path), Err(AuthError::Busy)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_refuses_existing_shared_file_without_repairing_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("state");
+        let initial = lock_at(&directory).unwrap();
+        drop(initial);
+        let path = directory.join("oauth.lock");
+        fs::write(&path, b"synthetic lock marker").unwrap();
+        for mode in [0o640, 0o644, 0o660, 0o666] {
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+            assert!(matches!(lock_at(&directory), Err(AuthError::Busy)));
+            assert_eq!(fs::read(&path).unwrap(), b"synthetic lock marker");
+            assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, mode);
+        }
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(lock_at(&directory).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_creates_private_directory_and_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("state");
+        let file = lock_at(&directory).unwrap();
+        let directory_mode = fs::metadata(&directory).unwrap().permissions().mode();
+        let file_mode = file.metadata().unwrap().permissions().mode();
+        assert_eq!(directory_mode & 0o077, 0);
+        assert_eq!(file_mode & 0o077, 0);
     }
 }
