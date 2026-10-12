@@ -2,7 +2,6 @@ use super::{AuthError, protocol::Credential};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
-    env,
     fs::{self, File, OpenOptions},
     path::PathBuf,
 };
@@ -73,18 +72,8 @@ impl SecretStore for SystemStore {
 }
 
 fn lock_directory() -> Result<PathBuf, AuthError> {
-    let base = if cfg!(windows) {
-        env::var_os("LOCALAPPDATA").map(PathBuf::from)
-    } else if cfg!(target_os = "macos") {
-        crate::environment::user_home().map(|home| home.join("Library/Application Support"))
-    } else {
-        env::var_os("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .or_else(|| crate::environment::user_home().map(|home| home.join(".local/state")))
-    }
-    .filter(|path| path.is_absolute())
-    .ok_or(AuthError::Busy)?;
-    Ok(base.join("lmm"))
+    crate::environment::user_directory(crate::environment::UserDirectory::State)
+        .ok_or(AuthError::Busy)
 }
 
 /// The lock stores no secrets; OS process exit releases it even after cancellation.
