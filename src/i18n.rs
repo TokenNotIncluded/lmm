@@ -213,7 +213,10 @@ mod tests {
     #[test]
     fn locale_precedence_and_empty_values_are_explicit() {
         assert_eq!(choose_locale(Some("en"), &[Some("zh-CN")]), Locale::En);
-        assert_eq!(choose_locale(None, &[Some("zh-CN"), Some("C")]), Locale::ZhCn);
+        assert_eq!(
+            choose_locale(None, &[Some("zh-CN"), Some("C")]),
+            Locale::ZhCn
+        );
         assert_eq!(
             choose_locale(None, &[None, Some("C"), Some("zh-CN")]),
             Locale::En
@@ -222,7 +225,10 @@ mod tests {
             choose_locale(None, &[Some(""), Some(" "), Some("zh-CN")]),
             Locale::ZhCn
         );
-        assert_eq!(choose_locale(None, &[Some("fr"), Some("zh-CN")]), Locale::En);
+        assert_eq!(
+            choose_locale(None, &[Some("fr"), Some("zh-CN")]),
+            Locale::En
+        );
         assert_eq!(choose_locale(None, &[]), Locale::En);
     }
 
@@ -259,7 +265,10 @@ mod tests {
     #[test]
     fn unknown_keys_are_safe_and_requested_locale_does_not_change_global_state() {
         assert_eq!(text(Locale::ZhCn, "missing.key"), "missing.key");
-        assert_ne!(text(Locale::En, "cli.about"), text(Locale::ZhCn, "cli.about"));
+        assert_ne!(
+            text(Locale::En, "cli.about"),
+            text(Locale::ZhCn, "cli.about")
+        );
         assert_eq!(locale(), Locale::En);
     }
 

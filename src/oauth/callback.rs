@@ -75,7 +75,11 @@ fn callback_response(accepted: bool, locale: Locale) -> String {
     } else {
         i18n::text(locale, "callback.invalid")
     };
-    let status = if accepted { "200 OK" } else { "400 Bad Request" };
+    let status = if accepted {
+        "200 OK"
+    } else {
+        "400 Bad Request"
+    };
     format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nContent-Language: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nConnection: close\r\n\r\n{body}",
         body.len(),
@@ -214,9 +218,12 @@ mod tests {
             for accepted in [true, false] {
                 let response = callback_response(accepted, locale);
                 let (headers, body) = response.split_once("\r\n\r\n").unwrap();
-                let length: usize = headers.lines()
+                let length: usize = headers
+                    .lines()
                     .find_map(|line| line.strip_prefix("Content-Length: "))
-                    .unwrap().parse().unwrap();
+                    .unwrap()
+                    .parse()
+                    .unwrap();
                 assert_eq!(length, body.len());
                 assert!(headers.contains(&format!("Content-Language: {}", locale.tag())));
                 assert!(headers.contains("Content-Type: text/plain; charset=utf-8"));

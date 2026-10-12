@@ -57,10 +57,16 @@ fn environment_precedence_normalization_and_fallback_work_in_real_processes() {
         (vec![], false),
         (vec![("LANG", "zh_CN.UTF-8")], true),
         (vec![("LC_ALL", "C"), ("LANG", "zh_CN.UTF-8")], false),
-        (vec![("LC_MESSAGES", "zh-Hans"), ("LANG", "en_US.UTF-8")], true),
+        (
+            vec![("LC_MESSAGES", "zh-Hans"), ("LANG", "en_US.UTF-8")],
+            true,
+        ),
         (vec![("LMM_LANG", "en"), ("LC_ALL", "zh_CN.UTF-8")], false),
         (vec![("LMM_LANG", ""), ("LANG", "zh_CN.UTF-8")], true),
-        (vec![("LMM_LANG", "unknown"), ("LANG", "zh_CN.UTF-8")], false),
+        (
+            vec![("LMM_LANG", "unknown"), ("LANG", "zh_CN.UTF-8")],
+            false,
+        ),
         (vec![("LANG", "zh-TW")], false),
     ] {
         let output = run(&["--help"], &environment);
@@ -74,7 +80,14 @@ fn translated_prose_does_not_change_json_keys_statuses_or_exit_codes() {
     let mut reports = Vec::new();
     for language in ["en", "zh-CN"] {
         let output = run(
-            &["setup", "astrbot", "--dry-run", "--json", "--lang", language],
+            &[
+                "setup",
+                "astrbot",
+                "--dry-run",
+                "--json",
+                "--lang",
+                language,
+            ],
             &[],
         );
         assert_eq!(output.status.code(), Some(3));
@@ -90,7 +103,10 @@ fn translated_prose_does_not_change_json_keys_statuses_or_exit_codes() {
         );
         report.as_object_mut().unwrap().remove("checked_at");
         report.as_object_mut().unwrap().remove("notes");
-        report["plans"][0].as_object_mut().unwrap().remove("blockers");
+        report["plans"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("blockers");
         reports.push(report);
     }
     assert_eq!(reports[0], reports[1]);

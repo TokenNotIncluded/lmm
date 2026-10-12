@@ -307,7 +307,8 @@ fn operation_report(
 
 fn write_json(value: &impl Serialize) -> Result<(), String> {
     let mut output = io::stdout().lock();
-    serde_json::to_writer_pretty(&mut output, value).map_err(|_| tr("error.json_output").to_owned())?;
+    serde_json::to_writer_pretty(&mut output, value)
+        .map_err(|_| tr("error.json_output").to_owned())?;
     writeln!(output).map_err(|_| tr("error.json_output").to_owned())
 }
 
@@ -488,7 +489,7 @@ fn execute(cli: &Cli) -> Result<u8, String> {
                 |url| {
                     let mut output = io::stderr().lock();
                     writeln!(output, "{}", trf!("login.authorize", url = url))
-                    .map_err(|_| oauth::AuthError::Output)?;
+                        .map_err(|_| oauth::AuthError::Output)?;
                     if !args.no_browser && open::that_detached(url).is_err() {
                         writeln!(output, "{}", tr("login.browser_failed"))
                             .map_err(|_| oauth::AuthError::Output)?;
@@ -585,14 +586,12 @@ fn execute(cli: &Cli) -> Result<u8, String> {
 
 fn auth_failure(error: oauth::AuthError, json: bool) -> Result<u8, String> {
     if json {
-        write_json(
-            &serde_json::json!({
-                "schema_version": 1,
-                "outcome": "blocked",
-                "error": error.to_string(),
-                "error_code": error.code(),
-            }),
-        )?;
+        write_json(&serde_json::json!({
+            "schema_version": 1,
+            "outcome": "blocked",
+            "error": error.to_string(),
+            "error_code": error.code(),
+        }))?;
     } else {
         eprintln!("lmm: {error}");
     }
