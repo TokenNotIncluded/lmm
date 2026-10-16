@@ -2,7 +2,10 @@
 
 use lmm::i18n::Locale;
 use serde_json::Value;
-use std::{ffi::OsString, process::{Command, Output, Stdio}};
+use std::{
+    ffi::OsString,
+    process::{Command, Output, Stdio},
+};
 
 fn run(args: &[&str], variables: &[(&str, &str)]) -> Output {
     let home = tempfile::tempdir().unwrap();
@@ -29,8 +32,16 @@ fn stdout(output: &Output) -> &str {
 }
 
 fn detect(args: &[&str], variables: &[(&str, &str)]) -> Locale {
-    let args = args.iter().map(|value| OsString::from(*value)).collect::<Vec<_>>();
-    Locale::detect(&args, |key| variables.iter().find(|(name, _)| *name == key).map(|(_, value)| OsString::from(*value)))
+    let args = args
+        .iter()
+        .map(|value| OsString::from(*value))
+        .collect::<Vec<_>>();
+    Locale::detect(&args, |key| {
+        variables
+            .iter()
+            .find(|(name, _)| *name == key)
+            .map(|(_, value)| OsString::from(*value))
+    })
 }
 
 #[test]
@@ -38,7 +49,15 @@ fn recognizes_language_tags_without_confusing_traditional_chinese_with_simplifie
     for name in ["en", "EN-us", "en_GB.UTF-8", "C", "C.UTF-8", "POSIX"] {
         assert_eq!(Locale::from_name(name), Some(Locale::En), "{name}");
     }
-    for name in ["zh", "zh-CN", "zh_CN.UTF-8", "zh_SG", "zh-Hans", "zh-Hans-CN", "zh_CN@variant"] {
+    for name in [
+        "zh",
+        "zh-CN",
+        "zh_CN.UTF-8",
+        "zh_SG",
+        "zh-Hans",
+        "zh-Hans-CN",
+        "zh_CN@variant",
+    ] {
         assert_eq!(Locale::from_name(name), Some(Locale::ZhCn), "{name}");
     }
     for name in ["", "fr_FR.UTF-8", "zh-TW", "zh-Hant", "pirate"] {
@@ -48,19 +67,49 @@ fn recognizes_language_tags_without_confusing_traditional_chinese_with_simplifie
 
 #[test]
 fn language_precedence_and_fallback_are_deterministic() {
-    assert_eq!(detect(&["lmm", "--lang", "en", "catalog"], &[("LMM_LANG", "zh-CN")]), Locale::En);
-    assert_eq!(detect(&["lmm", "catalog", "--lang=zh-CN"], &[("LC_ALL", "C")]), Locale::ZhCn);
-    assert_eq!(detect(&["lmm"], &[("LMM_LANG", "zh-CN"), ("LC_ALL", "C")]), Locale::ZhCn);
-    assert_eq!(detect(&["lmm"], &[("LC_ALL", "C"), ("LANG", "zh-CN")]), Locale::En);
-    assert_eq!(detect(&["lmm"], &[("LC_MESSAGES", "zh_CN.UTF-8"), ("LANG", "en_US")]), Locale::ZhCn);
-    assert_eq!(detect(&["lmm"], &[("LMM_LANG", ""), ("LANG", "zh_CN.UTF-8")]), Locale::ZhCn);
-    assert_eq!(detect(&["lmm"], &[("LC_ALL", "fr_FR.UTF-8"), ("LANG", "zh-CN")]), Locale::En);
+    assert_eq!(
+        detect(
+            &["lmm", "--lang", "en", "catalog"],
+            &[("LMM_LANG", "zh-CN")]
+        ),
+        Locale::En
+    );
+    assert_eq!(
+        detect(&["lmm", "catalog", "--lang=zh-CN"], &[("LC_ALL", "C")]),
+        Locale::ZhCn
+    );
+    assert_eq!(
+        detect(&["lmm"], &[("LMM_LANG", "zh-CN"), ("LC_ALL", "C")]),
+        Locale::ZhCn
+    );
+    assert_eq!(
+        detect(&["lmm"], &[("LC_ALL", "C"), ("LANG", "zh-CN")]),
+        Locale::En
+    );
+    assert_eq!(
+        detect(
+            &["lmm"],
+            &[("LC_MESSAGES", "zh_CN.UTF-8"), ("LANG", "en_US")]
+        ),
+        Locale::ZhCn
+    );
+    assert_eq!(
+        detect(&["lmm"], &[("LMM_LANG", ""), ("LANG", "zh_CN.UTF-8")]),
+        Locale::ZhCn
+    );
+    assert_eq!(
+        detect(&["lmm"], &[("LC_ALL", "fr_FR.UTF-8"), ("LANG", "zh-CN")]),
+        Locale::En
+    );
     assert_eq!(detect(&["lmm"], &[]), Locale::En);
 }
 
 #[test]
 fn positional_data_after_double_dash_does_not_select_a_language() {
-    assert_eq!(detect(&["lmm", "presets", "--", "--lang=zh-CN"], &[]), Locale::En);
+    assert_eq!(
+        detect(&["lmm", "presets", "--", "--lang=zh-CN"], &[]),
+        Locale::En
+    );
     let output = run(&["presets", "--", "--lang=zh-CN"], &[]);
     assert!(output.status.success());
     assert!(stdout(&output).contains("Built-in provider presets"));
@@ -71,9 +120,15 @@ fn positional_data_after_double_dash_does_not_select_a_language() {
 fn non_unicode_environment_does_not_panic_or_override_a_cli_choice() {
     use std::os::unix::ffi::OsStringExt;
     let args = vec![OsString::from("lmm")];
-    assert_eq!(Locale::detect(&args, |_| Some(OsString::from_vec(vec![0xff]))), Locale::En);
+    assert_eq!(
+        Locale::detect(&args, |_| Some(OsString::from_vec(vec![0xff]))),
+        Locale::En
+    );
     let args = vec![OsString::from("lmm"), OsString::from("--lang=zh-CN")];
-    assert_eq!(Locale::detect(&args, |_| Some(OsString::from_vec(vec![0xff]))), Locale::ZhCn);
+    assert_eq!(
+        Locale::detect(&args, |_| Some(OsString::from_vec(vec![0xff]))),
+        Locale::ZhCn
+    );
 }
 
 #[test]
@@ -83,10 +138,30 @@ fn root_and_subcommand_help_use_the_selected_language() {
         assert!(root.status.success(), "{:?}", root.stderr);
         assert!(stdout(&root).contains(heading));
         assert!(stdout(&root).contains("--lang"));
-        for name in ["presets", "catalog", "setup", "install", "login", "logout", "models", "status", "sync", "update", "doctor", "restore", "disconnect", "uninstall", "run"] {
+        for name in [
+            "presets",
+            "catalog",
+            "setup",
+            "install",
+            "login",
+            "logout",
+            "models",
+            "status",
+            "sync",
+            "update",
+            "doctor",
+            "restore",
+            "disconnect",
+            "uninstall",
+            "run",
+        ] {
             let output = run(&[name, "--lang", language, "--help"], &[]);
             assert!(output.status.success(), "{name}: {:?}", output.stderr);
-            assert!(stdout(&output).contains(heading), "{name}: {}", stdout(&output));
+            assert!(
+                stdout(&output).contains(heading),
+                "{name}: {}",
+                stdout(&output)
+            );
             assert!(stdout(&output).contains("--lang"));
             assert!(!stdout(&output).contains("arg."));
             assert!(!stdout(&output).contains("cmd."));
@@ -102,16 +177,26 @@ fn root_and_subcommand_help_use_the_selected_language() {
 fn environment_selection_and_global_flag_work_for_real_commands() {
     let chinese = run(&["catalog", "astrbot"], &[("LANG", "zh_CN.UTF-8")]);
     assert!(stdout(&chinese).contains("消息平台"));
-    let english = run(&["catalog", "astrbot", "--lang=en-US"], &[("LMM_LANG", "zh-CN")]);
+    let english = run(
+        &["catalog", "astrbot", "--lang=en-US"],
+        &[("LMM_LANG", "zh-CN")],
+    );
     assert!(stdout(&english).contains("messaging platforms"));
     assert!(!stdout(&english).contains("消息平台"));
-    let chinese = run(&["--lang=zh_CN.UTF-8", "catalog", "astrbot"], &[("LC_ALL", "C")]);
+    let chinese = run(
+        &["--lang=zh_CN.UTF-8", "catalog", "astrbot"],
+        &[("LC_ALL", "C")],
+    );
     assert!(stdout(&chinese).contains("消息平台"));
 }
 
 #[test]
 fn invalid_explicit_language_fails_without_running_a_command() {
-    for args in [vec!["--lang", "pirate", "catalog"], vec!["catalog", "--lang"], vec!["--lang=", "catalog"]] {
+    for args in [
+        vec!["--lang", "pirate", "catalog"],
+        vec!["catalog", "--lang"],
+        vec!["--lang=", "catalog"],
+    ] {
         let output = run(&args, &[]);
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
@@ -130,7 +215,10 @@ fn runtime_errors_and_blocked_plans_are_translated() {
     assert_eq!(chinese.status.code(), Some(3));
     assert!(stdout(&chinese).contains("计划已阻止"));
     assert!(stdout(&chinese).contains("写入适配器"));
-    let chinese = run(&["models", "--issuer", "http://127.0.0.1", "--lang=zh-CN"], &[]);
+    let chinese = run(
+        &["models", "--issuer", "http://127.0.0.1", "--lang=zh-CN"],
+        &[],
+    );
     assert_eq!(chinese.status.code(), Some(3));
     assert!(String::from_utf8_lossy(&chinese.stderr).contains("HTTPS 域名"));
 }
@@ -161,10 +249,18 @@ fn json_messages_and_codes_do_not_change_with_the_display_language() {
         }
         assert_eq!(results[0], results[1], "{arguments:?}");
     }
-    let output = run(&["status", "unknown-software", "--lang=zh-CN", "--json"], &[]);
+    let output = run(
+        &["status", "unknown-software", "--lang=zh-CN", "--json"],
+        &[],
+    );
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["error_code"], "error.unknown_software");
-    assert!(value["error"].as_str().unwrap().starts_with("Unknown software ID"));
+    assert!(
+        value["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("Unknown software ID")
+    );
 }
 
 #[test]

@@ -1,8 +1,8 @@
 //! Policy decisions shared by future adapters; discovery never authorizes a write.
 
+use crate::i18n::{Message, msg};
 use serde::Serialize;
 use thiserror::Error;
-use crate::i18n::{Message, msg};
 
 /// Authoritative selection read from the chosen software instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

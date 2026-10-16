@@ -7,6 +7,7 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
+use crate::i18n::{Message, msg};
 use protocol::{Credential, TokenResponse};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,6 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use storage::{SecretStore, StoredSession, SystemStore};
-use crate::i18n::{Message, msg};
 use zeroize::Zeroizing;
 
 /// Default trusted deployment issuer; never taken from HTTP redirects.
@@ -71,7 +71,6 @@ impl std::fmt::Display for AuthError {
 }
 
 impl std::error::Error for AuthError {}
-
 
 /// Login information deliberately excludes tokens, account secrets and scopes with group IDs.
 #[derive(Debug, Serialize)]

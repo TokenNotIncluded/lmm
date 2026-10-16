@@ -1,6 +1,9 @@
 //! Bounded local probes. Finding a path is evidence, not proof of installation.
 
-use crate::{catalog::Software, i18n::{Message, msg}};
+use crate::{
+    catalog::Software,
+    i18n::{Message, msg},
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{

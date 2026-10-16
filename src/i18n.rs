@@ -60,10 +60,7 @@ impl Locale {
         }
         for key in ["LMM_LANG", "LC_ALL", "LC_MESSAGES", "LANG"] {
             if let Some(value) = get_env(key).filter(|value| !value.is_empty()) {
-                return value
-                    .to_str()
-                    .and_then(Self::from_name)
-                    .unwrap_or_default();
+                return value.to_str().and_then(Self::from_name).unwrap_or_default();
             }
         }
         Self::default()
@@ -178,7 +175,10 @@ mod tests {
         assert!(!reference.is_empty());
         for locale in Locale::ALL {
             let catalog = locale.catalog();
-            assert_eq!(reference.keys().collect::<Vec<_>>(), catalog.keys().collect::<Vec<_>>());
+            assert_eq!(
+                reference.keys().collect::<Vec<_>>(),
+                catalog.keys().collect::<Vec<_>>()
+            );
             assert!(catalog.values().all(|value| !value.trim().is_empty()));
         }
     }
@@ -192,7 +192,12 @@ mod tests {
     fn replacement_values_cannot_inject_other_placeholders() {
         let output = msg("output.catalog_entry").render_in(
             Locale::En,
-            &[("id", "{source}"), ("name", "name"), ("purpose", "purpose"), ("source", "URL")],
+            &[
+                ("id", "{source}"),
+                ("name", "name"),
+                ("purpose", "purpose"),
+                ("source", "URL"),
+            ],
         );
         assert!(output.starts_with("{source} - name"));
         assert!(output.contains("Source: URL"));
@@ -201,7 +206,13 @@ mod tests {
     #[test]
     fn serialization_does_not_depend_on_display_language() {
         let message = msg("error.unknown_software");
-        assert_ne!(Locale::En.text(message.key()), Locale::ZhCn.text(message.key()));
-        assert_eq!(serde_json::to_value(message).unwrap(), Locale::En.text(message.key()));
+        assert_ne!(
+            Locale::En.text(message.key()),
+            Locale::ZhCn.text(message.key())
+        );
+        assert_eq!(
+            serde_json::to_value(message).unwrap(),
+            Locale::En.text(message.key())
+        );
     }
 }

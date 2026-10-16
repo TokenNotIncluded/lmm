@@ -117,7 +117,10 @@ pub fn search(query: &str) -> Vec<&'static Software> {
                 .iter()
                 .any(|text| text.to_lowercase().contains(&query))
                 || Locale::ALL.iter().any(|locale| {
-                    locale.text(item.purpose.key()).to_lowercase().contains(&query)
+                    locale
+                        .text(item.purpose.key())
+                        .to_lowercase()
+                        .contains(&query)
                 })
         })
         .collect()

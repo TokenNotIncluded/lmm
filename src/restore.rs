@@ -3,9 +3,9 @@
 //! Arrays and secrets require adapter-specific ownership; broad object replacement
 //! is deliberately rejected. A restore never renews any authorization.
 
+use crate::i18n::msg;
 use serde_json::Value;
 use thiserror::Error;
-use crate::i18n::msg;
 
 /// One scalar field owned by a particular LMM operation.
 /// This may contain secrets and therefore intentionally does not implement Debug or Serialize.

@@ -79,7 +79,10 @@ pub fn search(query: &str) -> Result<Snapshot, serde_json::Error> {
                 || preset.name.to_lowercase().contains(&query)
                 || preset.kind.as_str().contains(&query)
                 || Locale::ALL.iter().any(|locale| {
-                    locale.text(preset.kind.label().key()).to_lowercase().contains(&query)
+                    locale
+                        .text(preset.kind.label().key())
+                        .to_lowercase()
+                        .contains(&query)
                 })
         })
         .collect();

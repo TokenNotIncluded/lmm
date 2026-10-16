@@ -138,7 +138,7 @@ struct DoctorArgs {
     #[arg(help = text("arg.fix"))]
     #[arg(long)]
     fix: bool,
-    #[arg(help = text("arg.report"))]
+    #[arg(long, help = text("arg.report"))]
     report: bool,
 }
 
@@ -212,8 +212,7 @@ fn inspect(target: &TargetArgs, context: &ProbeContext) -> Result<Vec<TargetStat
     }
     match target.software.as_deref() {
         Some(id) => {
-            let software = catalog::find(id)
-                .ok_or(msg("error.unknown_software"))?;
+            let software = catalog::find(id).ok_or(msg("error.unknown_software"))?;
             if target.instance.is_some() && !matches!(id, "astrbot" | "cc-switch") {
                 return Err(msg("error.instance_unsupported"));
             }
@@ -232,8 +231,7 @@ fn inspect(target: &TargetArgs, context: &ProbeContext) -> Result<Vec<TargetStat
 
 fn select_software() -> Result<String, Message> {
     let mut output = io::stderr().lock();
-    writeln!(output, "{}", msg("select.title"))
-        .map_err(|_| msg("error.menu_output"))?;
+    writeln!(output, "{}", msg("select.title")).map_err(|_| msg("error.menu_output"))?;
     for (i, software) in catalog::SOFTWARE.iter().enumerate() {
         writeln!(output, "  {}. {} ({})", i + 1, software.name, software.id)
             .map_err(|_| msg("error.menu_output"))?;
@@ -295,22 +293,16 @@ fn operation_report(
         report.plans.push(preview);
     }
     if args.all {
-        report.notes.push(
-            msg("note.all_blocked"),
-        );
+        report.notes.push(msg("note.all_blocked"));
     }
     if args.dry_run {
-        report
-            .notes
-            .push(msg("note.dry_run"));
+        report.notes.push(msg("note.dry_run"));
     }
     if args.yes {
         report.notes.push(msg("note.yes"));
     }
     if name == "install" {
-        report
-            .notes
-            .push(msg("note.install"));
+        report.notes.push(msg("note.install"));
     }
     Ok(report)
 }
@@ -332,24 +324,40 @@ fn emit(report: &Report, json: bool) -> Result<(), Message> {
         report.command, report.environment.os, report.environment.arch
     )
     .map_err(|_| msg("error.output"))?;
-    writeln!(output, "{}", msg("output.scope").render(&[("time", &report.checked_at.to_string())]))
-        .map_err(|_| msg("error.output"))?;
+    writeln!(
+        output,
+        "{}",
+        msg("output.scope").render(&[("time", &report.checked_at.to_string())])
+    )
+    .map_err(|_| msg("error.output"))?;
     for target in &report.targets {
-        writeln!(output, "{}", msg("output.target").render(&[("software", target.software)]))
-            .map_err(|_| msg("error.output"))?;
+        writeln!(
+            output,
+            "{}",
+            msg("output.target").render(&[("software", target.software)])
+        )
+        .map_err(|_| msg("error.output"))?;
         for evidence in &target.evidence {
             // Debug formatting still escapes control characters in user-controlled paths.
             let path = format!("{:?}", evidence.path);
             let observation = evidence.observation.label();
-            writeln!(output, "{}", msg("output.evidence").render(&[("path", &path), ("observation", observation.text())]))
-                .map_err(|_| msg("error.output"))?;
-        }
-        writeln!(output, "{}", msg("output.verification"))
+            writeln!(
+                output,
+                "{}",
+                msg("output.evidence")
+                    .render(&[("path", &path), ("observation", observation.text())])
+            )
             .map_err(|_| msg("error.output"))?;
+        }
+        writeln!(output, "{}", msg("output.verification")).map_err(|_| msg("error.output"))?;
     }
     for plan in &report.plans {
-        writeln!(output, "{}", msg("output.blocked_plan").render(&[("software", plan.software)]))
-            .map_err(|_| msg("error.output"))?;
+        writeln!(
+            output,
+            "{}",
+            msg("output.blocked_plan").render(&[("software", plan.software)])
+        )
+        .map_err(|_| msg("error.output"))?;
         for blocker in &plan.blockers {
             writeln!(output, "  - {blocker}").map_err(|_| msg("error.output"))?;
         }
@@ -408,10 +416,17 @@ fn execute(cli: &Cli) -> Result<u8, Message> {
             } else {
                 let mut output = io::stdout().lock();
                 for software in entries {
-                    writeln!(output, "{}", msg("output.catalog_entry").render(&[
-                        ("id", software.id), ("name", software.name),
-                        ("purpose", software.purpose.text()), ("source", software.source),
-                    ])).map_err(|_| msg("error.catalog_output"))?;
+                    writeln!(
+                        output,
+                        "{}",
+                        msg("output.catalog_entry").render(&[
+                            ("id", software.id),
+                            ("name", software.name),
+                            ("purpose", software.purpose.text()),
+                            ("source", software.source),
+                        ])
+                    )
+                    .map_err(|_| msg("error.catalog_output"))?;
                 }
             }
             return Ok(0);
@@ -423,9 +438,7 @@ fn execute(cli: &Cli) -> Result<u8, Message> {
             report.notes.push(msg("note.doctor_incomplete"));
             if args.fix {
                 report.outcome = "blocked";
-                report
-                    .notes
-                    .push(msg("note.fix_blocked"));
+                report.notes.push(msg("note.fix_blocked"));
             }
             if args.report {
                 report.redact();
@@ -468,7 +481,8 @@ fn execute(cli: &Cli) -> Result<u8, Message> {
                     let mut output = io::stderr().lock();
                     writeln!(
                         output,
-                        "{}", msg("output.authorization_url").render(&[("url", url)])
+                        "{}",
+                        msg("output.authorization_url").render(&[("url", url)])
                     )
                     .map_err(|_| oauth::AuthError::Output)?;
                     if !args.no_browser && open::that_detached(url).is_err() {
@@ -499,11 +513,8 @@ fn execute(cli: &Cli) -> Result<u8, Message> {
                             &serde_json::json!({"outcome": outcome, "applications_changed": false, "other_application_grants": "not_checked"}),
                         )?;
                     } else {
-                        writeln!(
-                            io::stdout().lock(),
-                            "{}", msg("output.logout")
-                        )
-                        .map_err(|_| msg("error.logout_output"))?;
+                        writeln!(io::stdout().lock(), "{}", msg("output.logout"))
+                            .map_err(|_| msg("error.logout_output"))?;
                     }
                     Ok(0)
                 }
@@ -517,23 +528,25 @@ fn execute(cli: &Cli) -> Result<u8, Message> {
                         write_json(&catalog)?;
                     } else {
                         let mut output = io::stdout().lock();
-                        writeln!(
-                            output,
-                            "{}", msg("output.models")
-                        )
-                        .map_err(|_| msg("error.models_output"))?;
+                        writeln!(output, "{}", msg("output.models"))
+                            .map_err(|_| msg("error.models_output"))?;
                         for model in &catalog.models {
-                            writeln!(output, "{}", msg("output.model_entry").render(&[
-                                ("id", &format!("{:?}", model.id)),
-                                ("upstream", &format!("{:?}", model.upstream_model)),
-                                ("group", &format!("{:?}", model.group)),
-                                ("currency", &format!("{:?}", model.pricing.currency)),
-                                ("unit", &format!("{:?}", model.pricing.unit)),
-                                ("input", &format!("{:?}", model.pricing.input)),
-                                ("output", &format!("{:?}", model.pricing.output)),
-                                ("request", &format!("{:?}", model.pricing.request)),
-                                ("basis", &format!("{:?}", model.pricing.price_basis)),
-                            ])).map_err(|_| msg("error.models_output"))?;
+                            writeln!(
+                                output,
+                                "{}",
+                                msg("output.model_entry").render(&[
+                                    ("id", &format!("{:?}", model.id)),
+                                    ("upstream", &format!("{:?}", model.upstream_model)),
+                                    ("group", &format!("{:?}", model.group)),
+                                    ("currency", &format!("{:?}", model.pricing.currency)),
+                                    ("unit", &format!("{:?}", model.pricing.unit)),
+                                    ("input", &format!("{:?}", model.pricing.input)),
+                                    ("output", &format!("{:?}", model.pricing.output)),
+                                    ("request", &format!("{:?}", model.pricing.request)),
+                                    ("basis", &format!("{:?}", model.pricing.price_basis)),
+                                ])
+                            )
+                            .map_err(|_| msg("error.models_output"))?;
                         }
                     }
                     Ok(0)
@@ -553,9 +566,7 @@ fn execute(cli: &Cli) -> Result<u8, Message> {
             };
             let mut report = Report::new(name, inspect(&target, &context)?);
             report.outcome = "blocked";
-            report
-                .notes
-                .push(msg("note.execution_blocked"));
+            report.notes.push(msg("note.execution_blocked"));
             report
         }
     };
