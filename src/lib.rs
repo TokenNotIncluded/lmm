@@ -5,6 +5,7 @@
 pub mod catalog;
 pub mod discovery;
 pub mod environment;
+pub mod i18n;
 pub mod oauth;
 pub mod plan;
 pub mod provider;

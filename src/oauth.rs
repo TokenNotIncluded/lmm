@@ -7,6 +7,7 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
+use crate::i18n::{Message, msg};
 use protocol::{Credential, TokenResponse};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,6 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use storage::{SecretStore, StoredSession, SystemStore};
-use thiserror::Error;
 use zeroize::Zeroizing;
 
 /// Default trusted deployment issuer; never taken from HTTP redirects.
@@ -24,39 +24,53 @@ const CLIENT_ID: &str = "lmm";
 const SCOPE: &str = "catalog:read balance:read";
 
 /// Errors contain fixed messages only: never HTTP bodies, URLs or credentials.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AuthError {
-    #[error("issuer 必须是规范的 HTTPS 域名 origin，不含端口、路径、查询或凭据")]
     InvalidIssuer,
-    #[error("LMM 网络请求失败；请检查网络和服务端是否已启用 lmm 客户端")]
     Network,
-    #[error("LMM OAuth 响应不符合约定，已停止授权")]
     InvalidResponse,
-    #[error("授权已取消或被拒绝")]
     Denied,
-    #[error("登录等待超时；没有继续发起请求")]
     Timeout,
-    #[error("无法绑定本机 OAuth 回调端口")]
     Callback,
-    #[error(
-        "无法访问系统凭据库；请解锁 Keychain、Credential Manager 或 Secret Service，不会回退到明文文件"
-    )]
     CredentialStore,
-    #[error("尚未登录；请先运行 lmm login")]
     NotLoggedIn,
-    #[error("已有 CLI 登录；切换账号请先 lmm logout，不会迁移应用授权")]
     AlreadyLoggedIn,
-    #[error("上次刷新未可靠完成；不会重放旧刷新令牌，请先 logout 再 login")]
     RefreshBlocked,
-    #[error("另一项 LMM 授权操作正在运行，或无法建立当前用户的安全锁")]
     Busy,
-    #[error("服务端返回未授权；请重新登录，或检查 lmm 客户端是否已部署")]
     Unauthorized,
-    #[error("新授权未能保存，且无法确认已撤销；请在 LMM 授权页检查 LMM CLI 授权")]
     UnstoredGrant,
-    #[error("无法输出登录入口；登录已停止")]
     Output,
 }
+
+impl AuthError {
+    /// A fixed, non-sensitive description with a stable machine-readable key.
+    pub const fn message(&self) -> Message {
+        msg(match self {
+            Self::InvalidIssuer => "auth.invalid_issuer",
+            Self::Network => "auth.network",
+            Self::InvalidResponse => "auth.invalid_response",
+            Self::Denied => "auth.denied",
+            Self::Timeout => "auth.timeout",
+            Self::Callback => "auth.callback",
+            Self::CredentialStore => "auth.credential_store",
+            Self::NotLoggedIn => "auth.not_logged_in",
+            Self::AlreadyLoggedIn => "auth.already_logged_in",
+            Self::RefreshBlocked => "auth.refresh_blocked",
+            Self::Busy => "auth.busy",
+            Self::Unauthorized => "auth.unauthorized",
+            Self::UnstoredGrant => "auth.unstored_grant",
+            Self::Output => "auth.output",
+        })
+    }
+}
+
+impl std::fmt::Display for AuthError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.message(), formatter)
+    }
+}
+
+impl std::error::Error for AuthError {}
 
 /// Login information deliberately excludes tokens, account secrets and scopes with group IDs.
 #[derive(Debug, Serialize)]

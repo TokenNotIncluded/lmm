@@ -1,5 +1,6 @@
 //! Explicit project identities and independently stated integration capabilities.
 
+use crate::i18n::{Locale, Message, msg};
 use serde::Serialize;
 
 /// A capability with no verified adapter must never be promoted by discovery.
@@ -22,7 +23,7 @@ pub struct Software {
     /// Canonical project identity, not a download mirror.
     pub source: &'static str,
     /// Intended use.
-    pub purpose: &'static str,
+    pub purpose: Message,
     /// Installation capability of this LMM release.
     pub installation: Capability,
     /// Integration capability of this LMM release.
@@ -39,7 +40,7 @@ const fn software(
     id: &'static str,
     name: &'static str,
     source: &'static str,
-    purpose: &'static str,
+    purpose: Message,
     executables: &'static [&'static str],
 ) -> Software {
     Software {
@@ -61,42 +62,42 @@ pub static SOFTWARE: &[Software] = &[
         "astrbot",
         "AstrBot",
         "https://github.com/AstrBotDevs/AstrBot",
-        "消息平台 Agent 与机器人运行环境",
+        msg("purpose.astrbot"),
         &["astrbot"],
     ),
     software(
         "cc-switch",
         "CC Switch",
         "https://github.com/farion1231/cc-switch",
-        "服务商配置管理与本地路由",
+        msg("purpose.cc_switch"),
         &["cc-switch"],
     ),
     software(
         "claude-code",
         "Claude Code CLI",
         "https://github.com/anthropics/claude-code",
-        "终端编程助手",
+        msg("purpose.coding"),
         &["claude"],
     ),
     software(
         "codex",
         "OpenAI Codex CLI",
         "https://github.com/openai/codex",
-        "终端编程助手",
+        msg("purpose.coding"),
         &["codex"],
     ),
     software(
         "gemini-cli",
         "Gemini CLI",
         "https://github.com/google-gemini/gemini-cli",
-        "终端编程助手",
+        msg("purpose.coding"),
         &["gemini"],
     ),
     software(
         "pi",
         "Pi coding agent",
         "https://github.com/badlogic/pi-mono",
-        "终端 Agent，LMM Provider 已有独立项目",
+        msg("purpose.pi"),
         &["pi"],
     ),
 ];
@@ -108,13 +109,19 @@ pub fn find(id: &str) -> Option<&'static Software> {
 
 /// Search project identity and purpose without network access.
 pub fn search(query: &str) -> Vec<&'static Software> {
-    let query = query.to_lowercase();
+    let query = query.trim().to_lowercase();
     SOFTWARE
         .iter()
         .filter(|item| {
-            [item.id, item.name, item.purpose]
+            [item.id, item.name]
                 .iter()
                 .any(|text| text.to_lowercase().contains(&query))
+                || Locale::ALL.iter().any(|locale| {
+                    locale
+                        .text(item.purpose.key())
+                        .to_lowercase()
+                        .contains(&query)
+                })
         })
         .collect()
 }

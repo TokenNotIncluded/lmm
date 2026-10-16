@@ -16,3 +16,8 @@ fixtures instead of real account, system configuration or production writes.
 Run fmt, clippy and the complete CLI tests locally. Report the tested commit and
 skipped checks. A source change does not authorize publishing a crate, release
 or production deployment.
+
+Keep user-facing text in locales/en.json and locales/zh-CN.json, not Rust source.
+Use stable message keys and named placeholders. Do not translate command names,
+JSON field names, identifiers or protocol values. Run scripts/check-i18n.py and
+read docs/i18n.md when adding messages. Keep both README versions in sync.
