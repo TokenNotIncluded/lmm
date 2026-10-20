@@ -3,7 +3,7 @@ use lmm::{
     catalog,
     discovery::{self, ProbeContext, TargetStatus},
     environment::{self, Environment},
-    oauth,
+    oauth, pi,
     plan::{Intent, Preview},
     provider,
 };
@@ -49,6 +49,8 @@ enum Command {
     Logout(AuthArgs),
     /// 读取当前授权模型与计费信息，不发起模型调用或更改选择
     Models(AuthArgs),
+    /// 读取当前账号余额；保留服务端整数积分和美元单位
+    Balance(AuthArgs),
     /// 只读检查环境、安装线索与各层验证状态
     Status(TargetArgs),
     /// 同步 LMM 信息，保留当前服务商与模型
@@ -87,12 +89,27 @@ struct LoginArgs {
 }
 
 #[derive(Args)]
+struct PiArgs {
+    /// 显式 Node 可执行文件绝对路径（仅 Pi 适配器）
+    #[arg(long)]
+    node: Option<PathBuf>,
+    /// 已安装官方 Pi 1.2.0 npm 包根目录（仅 Pi 适配器）
+    #[arg(long)]
+    pi_package: Option<PathBuf>,
+    /// 显式 Pi agent 目录；不会猜测或读取其他实例
+    #[arg(long)]
+    agent_dir: Option<PathBuf>,
+}
+
+#[derive(Args)]
 struct TargetArgs {
     /// 精确的软件目录 ID，例如 astrbot 或 cc-switch
     software: Option<String>,
     /// 明确的本地实例根目录；不自动扫描远程或 Docker 实例
     #[arg(long, requires = "software")]
     instance: Option<PathBuf>,
+    #[command(flatten)]
+    pi: PiArgs,
 }
 
 #[derive(Args)]
@@ -139,6 +156,13 @@ struct RequiredTarget {
     software: String,
     #[arg(long)]
     instance: Option<PathBuf>,
+    #[command(flatten)]
+    pi: PiArgs,
+
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Serialize)]
@@ -205,7 +229,7 @@ fn inspect(target: &TargetArgs, context: &ProbeContext) -> Result<Vec<TargetStat
         Some(id) => {
             let software = catalog::find(id)
                 .ok_or_else(|| "未知软件 ID；运行 lmm catalog 查看精确名称".to_owned())?;
-            if target.instance.is_some() && !matches!(id, "astrbot" | "cc-switch") {
+            if target.instance.is_some() && !matches!(id, "astrbot" | "cc-switch" | "pi") {
                 return Err("此软件尚未实现实例选择，不能忽略 --instance 后继续操作".into());
             }
             Ok(vec![discovery::discover(
@@ -261,6 +285,11 @@ fn operation_report(
         selected = TargetArgs {
             software: Some(select_software()?),
             instance: None,
+            pi: PiArgs {
+                node: None,
+                pi_package: None,
+                agent_dir: None,
+            },
         };
         &selected
     } else {
@@ -368,14 +397,120 @@ fn emit(report: &Report, json: bool) -> Result<(), String> {
     Ok(())
 }
 
+fn pi_failure(action: &str, error: &str, json: bool) -> Result<Option<u8>, String> {
+    if json {
+        write_json(&serde_json::json!({"action":action,"outcome":"incomplete","error":error}))?;
+    } else {
+        writeln!(io::stderr().lock(), "{error}").map_err(|_| "无法输出 Pi 执行结果")?;
+    }
+    Ok(Some(3))
+}
+
+fn execute_pi(cli: &Cli) -> Result<Option<u8>, String> {
+    let target_owned;
+    let (action, target, dry_run, yes, activate) = match &cli.command {
+        Command::Setup(args) => (
+            "setup",
+            &args.operation.target,
+            args.operation.dry_run,
+            args.operation.yes,
+            args.activate,
+        ),
+        Command::Install(args) => ("install", &args.target, args.dry_run, args.yes, false),
+        Command::Update(args) => ("update", &args.target, args.dry_run, args.yes, false),
+        Command::Restore(args) => ("restore", &args.target, args.dry_run, args.yes, false),
+        Command::Sync(args) => ("sync", &args.target, args.dry_run, args.yes, false),
+        Command::Disconnect(args) | Command::Run(args) => {
+            target_owned = TargetArgs {
+                software: Some(args.software.clone()),
+                instance: args.instance.clone(),
+                pi: PiArgs {
+                    node: args.pi.node.clone(),
+                    pi_package: args.pi.pi_package.clone(),
+                    agent_dir: args.pi.agent_dir.clone(),
+                },
+            };
+            (
+                if matches!(&cli.command, Command::Run(_)) {
+                    "run"
+                } else {
+                    "disconnect"
+                },
+                &target_owned,
+                args.dry_run,
+                args.yes,
+                false,
+            )
+        }
+        _ => return Ok(None),
+    };
+    if target.software.as_deref() != Some("pi") {
+        return Ok(None);
+    }
+    if activate {
+        return Err("Pi 激活需要在目标 Pi 的 /login 和 /model 完成明确授权和选择；可先 --add-only 安装 Provider".into());
+    }
+    let (Some(node), Some(sdk), Some(project), Some(agent_dir)) = (
+        &target.pi.node,
+        &target.pi.pi_package,
+        &target.instance,
+        &target.pi.agent_dir,
+    ) else {
+        if target.pi.node.is_some()
+            || target.pi.pi_package.is_some()
+            || target.pi.agent_dir.is_some()
+        {
+            return Err(
+                "Pi 适配器需要同时指定 --instance、--node、--pi-package、--agent-dir 的绝对路径"
+                    .into(),
+            );
+        }
+        return Ok(None);
+    };
+    let target = pi::Target {
+        node,
+        sdk,
+        project,
+        agent_dir,
+    };
+    if action == "run" && !dry_run {
+        if cli.json
+            || cli.non_interactive
+            || !io::stdin().is_terminal()
+            || !io::stderr().is_terminal()
+        {
+            return Err("Pi run 需要交互终端；不会在 JSON 或无人值守模式暗中启动应用".into());
+        }
+        return match target.run() {
+            Ok(code) => Ok(Some(code)),
+            Err(error) => pi_failure(action, &error, cli.json),
+        };
+    }
+    let outcome = match target.execute(action, dry_run, yes) {
+        Ok(outcome) => outcome,
+        Err(error) => return pi_failure(action, &error, cli.json),
+    };
+    write_json(&outcome)?;
+    Ok(Some(
+        if !dry_run && matches!(action, "setup" | "sync" | "disconnect") {
+            3
+        } else {
+            0
+        },
+    ))
+}
+
 fn execute(cli: &Cli) -> Result<u8, String> {
     if cli.non_interactive
         && matches!(
             &cli.command,
-            Command::Login(_) | Command::Logout(_) | Command::Models(_)
+            Command::Login(_) | Command::Logout(_) | Command::Models(_) | Command::Balance(_)
         )
     {
         return Err("当前系统凭据库可能需要解锁交互；OAuth 命令尚不支持 --non-interactive，未访问凭据或网络".into());
+    }
+    if let Some(code) = execute_pi(cli)? {
+        return Ok(code);
     }
     let context = context();
     let interactive = !cli.json
@@ -515,6 +650,26 @@ fn execute(cli: &Cli) -> Result<u8, String> {
                 Err(error) => auth_failure(error, cli.json),
             };
         }
+        Command::Balance(args) => {
+            return match oauth::balance(&args.issuer) {
+                Ok(balance) => {
+                    if cli.json {
+                        write_json(&balance)?;
+                    } else {
+                        writeln!(
+                            io::stdout().lock(),
+                            "余额：{} USD（{} 积分；每美元 {} 积分）",
+                            balance.balance,
+                            balance.public_credit_balance,
+                            balance.credits_per_usd
+                        )
+                        .map_err(|_| "无法输出余额")?;
+                    }
+                    Ok(0)
+                }
+                Err(error) => auth_failure(error, cli.json),
+            };
+        }
         Command::Models(args) => {
             return match oauth::models(&args.issuer) {
                 Ok(catalog) => {
@@ -545,6 +700,11 @@ fn execute(cli: &Cli) -> Result<u8, String> {
             let target = TargetArgs {
                 software: Some(args.software.clone()),
                 instance: args.instance.clone(),
+                pi: PiArgs {
+                    node: args.pi.node.clone(),
+                    pi_package: args.pi.pi_package.clone(),
+                    agent_dir: args.pi.agent_dir.clone(),
+                },
             };
             let mut report = Report::new(name, inspect(&target, &context)?);
             report.outcome = "blocked";

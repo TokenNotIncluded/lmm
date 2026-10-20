@@ -312,3 +312,62 @@ fn existing_login_is_not_silently_replaced_or_reauthorized() {
     ));
     assert_eq!(store.writes.get(), 0);
 }
+
+#[test]
+fn balance_uses_refreshed_readonly_grant_and_preserves_exact_credits() {
+    let payload = serde_json::json!({"schema_version":2,"currency":"USD","balance":-0.00014,
+        "quota":-70,"public_credit_balance":"-70","credit_unit":1,"credits_per_usd":"500000",
+        "quota_per_unit":500000,"updated_at":1792000000,"authorization_limit":null});
+    let (transport, task) = server(vec![(200, token_body()), (200, payload.to_string())]);
+    let store = MemoryStore::new(&transport.issuer, None);
+    assert_eq!(
+        serde_json::to_value(balance_with(&transport, &store).unwrap()).unwrap(),
+        payload
+    );
+    let requests = task.join().unwrap();
+    assert!(requests[1].starts_with("GET /api/oauth2/balance "));
+    assert!(requests[1].contains(&token("lmm_at_", 3)));
+}
+
+#[test]
+fn balance_rejects_unknown_units_and_keeps_failure_bodies_private() {
+    for (status, body, expected) in [
+        (
+            200,
+            serde_json::json!({"schema_version":1,"balance":0}).to_string(),
+            AuthError::InvalidResponse,
+        ),
+        (503, "PRIVATE_BALANCE_BODY".into(), AuthError::Network),
+        (401, "PRIVATE_BALANCE_BODY".into(), AuthError::Unauthorized),
+    ] {
+        let (transport, task) = server(vec![(200, token_body()), (status, body)]);
+        let store = MemoryStore::new(&transport.issuer, None);
+        assert_eq!(balance_with(&transport, &store), Err(expected));
+        assert_eq!(task.join().unwrap().len(), 2);
+    }
+}
+
+#[test]
+fn balance_rejects_inconsistent_integer_denominations() {
+    let valid = serde_json::json!({"schema_version":2,"currency":"USD","balance":1,
+        "quota":500000,"public_credit_balance":"500000","credit_unit":1,"credits_per_usd":"500000",
+        "quota_per_unit":500000,"updated_at":1792000000,"authorization_limit":null});
+    for (field, wrong) in [
+        ("currency", serde_json::json!("credits")),
+        ("quota", serde_json::json!(9007199254740992_i64)),
+        ("public_credit_balance", serde_json::json!("0")),
+        ("credits_per_usd", serde_json::json!("1")),
+        ("authorization_limit", serde_json::json!({"unknown":true})),
+    ] {
+        let mut payload = valid.clone();
+        payload[field] = wrong;
+        let (transport, task) = server(vec![(200, token_body()), (200, payload.to_string())]);
+        let store = MemoryStore::new(&transport.issuer, None);
+        assert_eq!(
+            balance_with(&transport, &store),
+            Err(AuthError::InvalidResponse),
+            "{field}"
+        );
+        assert_eq!(task.join().unwrap().len(), 2);
+    }
+}

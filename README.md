@@ -7,7 +7,7 @@ LMM = **Language Model Mesh**，中文「语言模型网络」。Mesh 表达互�
 这是 [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm) 独立维护的 Rust CLI。crates.io 包名为 `lmm-cli`，可执行文件名为 `lmm`；父仓库通过子模块锁定版本，CLI 的构建和依赖独立管理。
 
 **当前是开发预览，已实现服务商预设查询、只读发现、桌面 OAuth 登录和模型目录读取，不是可完成应用接入的产品版本。**
-`setup`、安装、同步、更新、恢复、解除接入、卸载和启动目前会明确返回阻塞原因，
+除下文明确限定的 Pi Provider 适配器外，`setup`、安装、同步、更新、恢复、解除接入、卸载和启动会明确返回阻塞原因，
 不会以空操作返回成功。没有修改第三方软件或生产服务。
 
 完整产品要求见 [原始需求](docs/requirements.zh-CN.md)。完整需求保留为目标，不因当前实现范围而缩减。
@@ -36,7 +36,38 @@ Linux OAuth 功能另需运行中的 Secret Service；Windows/macOS 使用系统
 - `--json`：结构化结果；自动禁用交互。`--non-interactive` 同样禁止等待输入。
 - `lmm login`：桌面浏览器 PKCE 登录；凭据保存于系统凭据库。
 - `lmm models [--json]`：获取当前授权模型及价格，不调用模型、不切换配置。
+- `lmm balance [--json]`：读取余额 V2，保留服务端整数积分及美元单位；未知单位或失败不会显示为零。
 - `lmm logout`：撤销当前 issuer 下的 CLI 令牌族，成功后删除本地凭据；不影响 Pi/DSH 等其他应用。
+
+## Pi Provider 适配器（Linux / Pi 1.2.0）
+
+此适配器连接**已经安装的官方 Pi 1.2.0 npm 包**，仅管理明确项目内的 LMM Provider。
+它不安装或卸载 Pi 本体，不复制 CLI 登录凭据。Pi 使用自己的 `/login` 授权、`/model` 选择和原生模型调用。
+固定 Provider 来源为 `git:github.com/TokenNotIncluded/pi-lmm-provider@f0c54764eb3d73e50790346f0dbab834587fe27b`。
+
+```bash
+lmm setup pi --add-only --instance /absolute/project --node /absolute/node \
+  --pi-package /absolute/node_modules/@earendil-works/pi-coding-agent \
+  --agent-dir /absolute/pi-agent --dry-run --json
+# 核对预览后，用相同参数移除 --dry-run，并添加 --yes
+```
+
+`setup` / `install` 只添加固定 Provider；结果为 `provider_added_authorization_pending`，不代表模型已可用。
+`setup`、`sync`、`disconnect` 的后续授权/目录刷新/撤销仍需目标 Pi 完成，因此实际执行返回 3 并报告具体阶段。
+已有其他 LMM 安装来源时拒绝创建副本；默认服务商和模型保留当前选择。`--activate` 必须交由目标 Pi 的交互授权和模型选择完成。
+`update` 只接受仍存在的自有固定来源，本版本不自动追逐最新版。
+`sync` 验证 Provider 存在，明确返回 `catalog_refresh_pending`；在 Pi 中运行 `/lmm-prices` 才会刷新目录。
+`run pi` 使用相同的四个显式路径启动 Pi，只允许交互终端。
+
+`restore` / `disconnect` 加相同目标路径和 `--yes`，仅从原生设置事务中移除本次添加的精确来源。
+这不会撤销 Pi OAuth 授权；需要撤销时在 Pi 中运行 `/lmm-revoke`。
+用户后来新增的插件、默认模型及其他字段都会保留；若用户改写了此来源对象则拒绝恢复。
+下载代码可能被其他实例引用，因此保留。`uninstall` 仍受阻，不删除 Pi 本体或未知资源。
+
+无秘密日志在所选项目 `.pi/lmm-owned.json`，锁在 `.pi/lmm-adapter.lock`。
+修改前持久化 pending，读回成功后才完成日志；中断或不确定结果保持待检查状态，不自动声称完成。
+配置增删在 Pi 自己的 `FileSettingsStorage.withLock` 中读取最新内容执行，避免用旧插件数组覆盖并发编辑。
+普通 CLI 的 OAuth 凭据继续只保存在系统凭据库；适配器从不读取 Pi 的凭据文件。
 
 ## 服务商预设
 
@@ -54,8 +85,9 @@ lmm presets deepseek --json
 ```bash
 lmm login
 lmm models --json
+lmm balance --json
 lmm logout
-# 自托管必须明确指定可信的 HTTPS origin，三个命令使用同一 issuer
+# 自托管必须明确指定可信的 HTTPS origin，认证和只读命令使用同一 issuer
 lmm login --issuer https://lmm.example.com --no-browser
 ```
 
@@ -70,7 +102,7 @@ MCP 或账号管理权限。CLI 登录成功不代表 AstrBot 或 CC Switch 已�
 
 Windows 使用 Credential Manager，macOS 使用 Keychain，Linux 使用 Secret Service。
 凭据库可能显示系统解锁提示；不可用时明确报错，不使用明文文件后备。
-因此认证命令暂不支持 `--non-interactive`，会在访问凭据库之前退出；`models --json` 只禁用 CLI 文本交互，系统仍可能要求解锁。
+因此认证命令暂不支持 `--non-interactive`，会在访问凭据库之前退出；`models --json`、`balance --json` 只禁用 CLI 文本交互，系统仍可能要求解锁。
 源码构建将 Linux D-Bus 库静态编入，
 运行时仍需要可用的 Secret Service；不能将开发机单测当作三个系统的实际凭据库验收。
 

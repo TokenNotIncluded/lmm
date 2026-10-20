@@ -4,7 +4,7 @@
 
 对照基准为 [yetone/magpie 的固定提交](https://github.com/yetone/magpie/tree/d5cae267a727e23f4b6e2b28aa107ecdeac5aa9c) `d5cae267a727e23f4b6e2b28aa107ecdeac5aa9c`，依据该版本的 [README](https://github.com/yetone/magpie/blob/d5cae267a727e23f4b6e2b28aa107ecdeac5aa9c/README.md)、[命令参考](https://github.com/yetone/magpie/blob/d5cae267a727e23f4b6e2b28aa107ecdeac5aa9c/docs/reference.md) 和 [预设源码](https://github.com/yetone/magpie/blob/d5cae267a727e23f4b6e2b28aa107ecdeac5aa9c/internal/provider/presets.go)。不代表上游最新版本。
 
-LMM 是独立的 Rust CLI，可执行文件仍为 `lmm`。本轮只移植服务商预设目录，不引入 Magpie 的 Go 程序或运行时，也不把原有 OAuth 和只读检查当作功能已全部对齐的证据。预设数据的来源与许可见 [NOTICE](../NOTICE)。
+LMM 是独立的 Rust CLI，可执行文件仍为 `lmm`。服务商预设目录保留来源归属，Pi Provider 适配器消费目标软件原生事务；不引入 Magpie 的 Go 程序或运行时，也不把原有 OAuth 和只读检查当作功能已全部对齐的证据。预设数据的来源与许可见 [NOTICE](../NOTICE)。
 
 ## 当前差距
 
@@ -13,9 +13,9 @@ LMM 是独立的 Rust CLI，可执行文件仍为 `lmm`。本轮只移植服务�
 | 服务商预设 | 内置预设可用于添加服务商 | `lmm presets [关键词] [--json]` 离线查询 56 项静态预设；不能添加服务商 |
 | 服务商配置与模型发现 | 添加密钥、导入配置、刷新模型及测试请求 | 尚无服务商配置存储、导入、联网发现或调用测试；预设不是已配置列表 |
 | 账号登录 | 多类订阅账号与服务商账号 | 现有 LMM 桌面浏览器 PKCE 登录、刷新与退出；不等于 Magpie 订阅账号接入，不读取其他应用凭据 |
-| 软件接入与配置切换 | 检测多种 Agent，修改对应配置并保存配置组合 | 软件目录、PATH 及显式实例路径检查和受阻计划；未验证软件兼容组合，没有配置写入或切换 |
+| 软件接入与配置切换 | 检测多种 Agent，修改对应配置并保存配置组合 | 软件目录、PATH 及显式实例路径检查；新增 Linux / Pi 1.2.0 原生事务添加及恢复固定 Provider 来源，授权/激活仍在目标 Pi 内完成；其他适配器仍受阻 |
 | 本地网关与路由 | 多协议转换、流式调用、路由组和故障切换 | 未实现；CLI 不是 `lmm-core`，不会因为预设带端点就提供代理或路由服务 |
-| 用量、额度与费用 | 记录调用用量，查询多账号额度及费用 | `lmm models` 读取 LMM 授权模型及价格；无调用计量、跨服务商额度查询或付费验证 |
+| 用量、额度与费用 | 记录调用用量，查询多账号额度及费用 | `lmm models` 读取授权模型及价格，`lmm balance` 读取服务端精确积分及美元余额；无跨服务商额度查询或付费验证 |
 | 插件与交互界面 | 插件及中间件、桌面界面、Web、TUI | 当前只有 CLI；无 Magpie 插件宿主或这些界面 |
 | 安装与更新 | 独立安装渠道及更新能力 | Cargo 开发预览；签名二进制安装器和普通用户更新渠道尚未提供 |
 

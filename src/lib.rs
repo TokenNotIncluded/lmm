@@ -9,3 +9,5 @@ pub mod oauth;
 pub mod plan;
 pub mod provider;
 pub mod restore;
+
+pub mod pi;

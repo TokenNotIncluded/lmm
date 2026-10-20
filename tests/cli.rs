@@ -86,7 +86,7 @@ fn login_in_unattended_mode_fails_before_touching_vault_or_network() {
 
 #[test]
 fn authentication_rejects_insecure_issuer_before_accessing_secrets() {
-    for command in ["logout", "models"] {
+    for command in ["logout", "models", "balance"] {
         let output = run(&[command, "--issuer", "http://127.0.0.1", "--json"]);
         assert_eq!(output.status.code(), Some(3));
         let report: Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -150,4 +150,47 @@ fn read_only_commands_do_not_create_state_or_modify_instances() {
         assert_eq!(std::fs::read(&config).unwrap(), original);
     }
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn balance_unattended_mode_fails_before_vault_access() {
+    let output = run(&["balance", "--non-interactive", "--json"]);
+    assert_eq!(output.status.code(), Some(2));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["outcome"], "invalid_request");
+}
+
+#[test]
+fn pi_runtime_failure_is_incomplete_without_creating_project_state() {
+    let root = tempfile::tempdir().unwrap();
+    let sdk = root.path().join("sdk");
+    let project = root.path().join("project");
+    let agent = root.path().join("agent");
+    for path in [&sdk, &project, &agent] {
+        std::fs::create_dir(path).unwrap();
+    }
+    std::fs::write(
+        sdk.join("package.json"),
+        br#"{"name":"unverified","version":"1.2.0"}"#,
+    )
+    .unwrap();
+    let node = std::env::current_exe().unwrap();
+    let output = run(&[
+        "setup",
+        "pi",
+        "--instance",
+        project.to_str().unwrap(),
+        "--node",
+        node.to_str().unwrap(),
+        "--pi-package",
+        sdk.to_str().unwrap(),
+        "--agent-dir",
+        agent.to_str().unwrap(),
+        "--yes",
+        "--json",
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["outcome"], "incomplete");
+    assert!(!project.join(".pi").exists());
 }

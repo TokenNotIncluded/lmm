@@ -343,3 +343,53 @@ pub fn models(issuer: &str) -> Result<ModelCatalog, AuthError> {
     }
     Ok(catalog)
 }
+
+/// Read the issuer's exact integer-credit balance using the existing readonly grant.
+pub fn balance(issuer: &str) -> Result<Balance, AuthError> {
+    let transport = Transport::new(issuer)?;
+    let _lock = storage::lock()?;
+    let store = SystemStore::new(issuer)?;
+    balance_with(&transport, &store)
+}
+
+fn balance_with(transport: &Transport, store: &dyn SecretStore) -> Result<Balance, AuthError> {
+    let session = refresh(
+        transport,
+        store,
+        store.load()?.ok_or(AuthError::NotLoggedIn)?,
+    )?;
+    let body = transport.request(
+        transport
+            .client
+            .get(format!("{}/balance", transport.resource))
+            .bearer_auth(&session.credential.access),
+        64 * 1024,
+    )?;
+    let balance: Balance = serde_json::from_slice(&body).map_err(|_| AuthError::InvalidResponse)?;
+    if balance.schema_version != 2
+        || balance.currency != "USD"
+        || balance.credits_per_usd != "500000"
+        || balance.quota_per_unit != 500000
+        || balance.credit_unit != 1
+        || balance.quota.unsigned_abs() > 9_007_199_254_740_991
+        || balance.public_credit_balance != balance.quota.to_string()
+    {
+        return Err(AuthError::InvalidResponse);
+    }
+    Ok(balance)
+}
+
+/// Balance V2 preserves integer credit truth without calculating money with floats.
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct Balance {
+    pub schema_version: u8,
+    pub currency: String,
+    pub balance: serde_json::Number,
+    pub quota: i64,
+    pub public_credit_balance: String,
+    pub credit_unit: u8,
+    pub credits_per_usd: String,
+    pub quota_per_unit: u32,
+    pub updated_at: u64,
+    pub authorization_limit: Option<()>,
+}
