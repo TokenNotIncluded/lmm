@@ -118,7 +118,7 @@ Unix 目录/锁文件新建权限分别为 0700/0600；已有不安全目录会�
 
 ## 本地软件检查
 
-显式实例目前只接受 AstrBot 部署根目录、CC Switch 配置根目录：
+显式实例接受 AstrBot 部署根目录、CC Switch 配置根目录，以及下述 Pi 项目根目录：
 
 ```bash
 lmm status astrbot --instance /absolute/path/to/AstrBot
@@ -133,10 +133,39 @@ Windows 使用当前 Windows 环境的绝对路径。AstrBot 只检查所选根�
 PATH 文件可能是包装脚本或来自其他环境，因此只标为线索；不执行 `--version`。
 符号链接和不可访问项显示 `unknown`，文件缺失只描述被检查的那个位置。
 
-目前所有软件目录条目的兼容版本/平台/场景列表为空，均未验证。
-配置管理者、授权状态、实际服务商、模型及真实调用路径不会凭路径推断。
-`status` 的退出码 0 只表示完成线索查询，不能用于判断“软件可使用”。
-`doctor` 尚不能完成语义检查，会返回 3。`status`、`doctor`、`setup --dry-run` 没有网络调用或付费验证。
+Pi 的只读设置检查仅支持 Linux、声明为官方 Pi 1.2.0 的 npm 包格式，必须显式指定三个目录：
+
+```bash
+lmm status pi --instance /absolute/project \
+  --pi-package /absolute/node_modules/@earendil-works/pi-coding-agent \
+  --agent-dir /absolute/pi-agent --json
+lmm doctor pi --instance /absolute/project \
+  --pi-package /absolute/node_modules/@earendil-works/pi-coding-agent \
+  --agent-dir /absolute/pi-agent --report --json
+```
+
+这条路径只读包清单和所选 agent 的 `settings.json`、项目的 `.pi/settings.json`，
+不需要 Node，不启动目标或 SDK，不读取 `auth.json`，也不创建状态目录或配置锁。
+`pi_settings.provider_reference` 区分固定来源、其他已知 LMM 来源和多个引用；
+`no_known_source` 只表示没有识别到这两种 npm/git 来源，不解析本地插件路径，
+不能据此排除其他扩展加载了 LMM。包引用也不代表代码已安装或已加载。
+`lmm_added=referenced_in_settings` 与 `lmm_enabled=selected_in_settings` 分别表示
+引用存在和默认服务商字段为 LMM；二者不等同于运行时添加或启用。
+项目的默认服务商、模型字段分别覆盖全局字段，`provider_scope` / `model_scope`
+指出各自来源。模型只显示已设置/未设置，其他服务商只显示 `other`，不输出原始配置值。
+多个已知来源会单独标出，不自动去重或修复。
+
+未知版本、无法访问、符号链接（含目录祖先）、超过 1 MiB 的文件及已知字段结构不符，
+保留 `unknown` 并使 `status` 返回 3；不存在的设置文件按未设置处理，不创建它们。
+设置是分别读取的快照，不是跨文件原子快照；项目信任、启动参数、会话选择及模型缓存
+可能改变实际行为，本检查不确认它们，也不验证 SDK 内容真实性、安装管理者或配置管理归属。
+仅提供项目路径、未提供 Pi 格式检查参数时，仍保留原有路径检查行为。
+
+软件目录中的完整兼容版本/平台/场景列表仍为空；上述局部配置检查不是完整接入兼容声明。
+授权、连通性、实际服务商/模型及真实调用路径仍未验证。
+`status` 的退出码 0 只表示完成对应只读查询，不能用于判断“软件可使用”。
+`doctor` 即使配置检查通过也返回 3，`--fix` 仍阻止写入。
+`status`、`doctor`、`setup --dry-run` 没有网络调用或付费验证。
 
 `--all` 不把目录视为安装列表；当前没有合格适配器，因此返回空计划与退出码 3。
 `--yes` 不能消除能力缺失，不能代表支付、重新授权或切换服务商的同意。

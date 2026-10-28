@@ -176,6 +176,8 @@ struct Report {
     targets: Vec<TargetStatus>,
     plans: Vec<Preview>,
     notes: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pi_settings: Option<pi::status::Inspection>,
 }
 
 impl Report {
@@ -192,6 +194,7 @@ impl Report {
             targets,
             plans: vec![],
             notes: vec![],
+            pi_settings: None,
         }
     }
 
@@ -243,6 +246,81 @@ fn inspect(target: &TargetArgs, context: &ProbeContext) -> Result<Vec<TargetStat
             .map(|software| discovery::discover(software, context, None))
             .collect()),
     }
+}
+
+// @mark cli.pi-settings-inspection role=command contract=explicit-read-only-instance
+fn readonly_report(
+    name: &'static str,
+    target: &TargetArgs,
+    context: &ProbeContext,
+) -> Result<Report, String> {
+    let mut report = Report::new(name, inspect(target, context)?);
+    let requested =
+        target.pi.node.is_some() || target.pi.pi_package.is_some() || target.pi.agent_dir.is_some();
+    if !requested {
+        return Ok(report);
+    }
+    if target.software.as_deref() != Some("pi") {
+        return Err("Pi 路径参数只适用于明确选择的 pi 实例".into());
+    }
+    let (Some(project), Some(sdk), Some(agent)) = (
+        &target.instance,
+        &target.pi.pi_package,
+        &target.pi.agent_dir,
+    ) else {
+        return Err(
+            "Pi 只读检查需要 --instance、--pi-package、--agent-dir 的绝对路径；不需要 --node"
+                .into(),
+        );
+    };
+    if ![project, sdk, agent].iter().all(|path| path.is_absolute())
+        || target
+            .pi
+            .node
+            .as_ref()
+            .is_some_and(|path| !path.is_absolute())
+    {
+        return Err("Pi 路径必须是当前环境的绝对本地路径".into());
+    }
+    let inspection = pi::status::inspect(project, sdk, agent);
+    report.check_scope = "explicit_pi_settings_snapshot";
+    if inspection.configuration != "passed" {
+        report.outcome = "incomplete";
+    }
+    for state in &mut report.targets {
+        state.lmm_added = match inspection.provider_reference {
+            "pinned" | "other_known_source" | "multiple_known_sources" => "referenced_in_settings",
+            "no_known_source" => "no_known_reference",
+            _ => "unknown",
+        };
+        state.lmm_enabled = match inspection.default_provider {
+            "lmm" => "selected_in_settings",
+            "other" => "not_selected_in_settings",
+            "unset" => "unset_in_settings",
+            _ => "unknown",
+        };
+        state.verification.configuration = inspection.configuration;
+        if inspection.configuration == "passed" {
+            state.verification.verified_at = Some(report.checked_at);
+        }
+        for (path, observation) in [
+            (agent.join("settings.json"), inspection.global_settings),
+            (
+                project.join(".pi/settings.json"),
+                inspection.project_settings,
+            ),
+        ] {
+            state.evidence.push(discovery::Evidence {
+                path,
+                observation,
+                kind: "explicit_pi_settings_snapshot",
+            });
+        }
+    }
+    report.notes.push("仅解析所选 Pi 1.2.0 设置中的已知包引用与默认选择，不输出配置值；不执行 Node 或 Pi，不读取凭据。");
+    report.notes.push("两个设置文件分别读取；代码安装、项目信任、会话覆盖、配置管理归属及实际路由未验证。项目默认选择仅描述信任该项目设置时的覆盖规则。");
+    report.pi_settings = Some(inspection);
+    Ok(report)
 }
 
 fn select_software() -> Result<String, String> {
@@ -374,11 +452,21 @@ fn emit(report: &Report, json: bool) -> Result<(), String> {
             )
             .map_err(|_| "无法输出结果")?;
         }
-        writeln!(
-            output,
-            "  LMM 添加/启用：未知；授权、连通性、目标调用、流式及工具调用：未检查"
-        )
-        .map_err(|_| "无法输出结果")?;
+        if let Some(settings) = &report.pi_settings {
+            writeln!(
+                output,
+                "  设置中的 LMM 引用/选择：{} / {}；默认模型：{}（{}）\n  配置检查：{}；诊断：{}\n  授权、连通性、目标调用、流式及工具调用：未检查",
+                target.lmm_added, target.lmm_enabled, settings.default_model,
+                settings.model_scope, settings.configuration, settings.diagnostic,
+            )
+            .map_err(|_| "无法输出结果")?;
+        } else {
+            writeln!(
+                output,
+                "  LMM 添加/启用：未知；授权、连通性、目标调用、流式及工具调用：未检查"
+            )
+            .map_err(|_| "无法输出结果")?;
+        }
     }
     for plan in &report.plans {
         writeln!(
@@ -556,11 +644,15 @@ fn execute(cli: &Cli) -> Result<u8, String> {
             }
             return Ok(0);
         }
-        Command::Status(target) => Report::new("status", inspect(target, &context)?),
+        Command::Status(target) => readonly_report("status", target, &context)?,
         Command::Doctor(args) => {
-            let mut report = Report::new("doctor", inspect(&args.target, &context)?);
+            let mut report = readonly_report("doctor", &args.target, &context)?;
             report.outcome = "incomplete";
-            report.notes.push("诊断未完成：仅检查本地路径线索；请核对目标实例、版本及配置管理关系。没有执行网络或付费测试");
+            report.notes.push(if report.pi_settings.is_some() {
+                "诊断未完成：只读设置检查不验证目标应用加载、授权、连通性或真实调用；没有执行网络或付费测试"
+            } else {
+                "诊断未完成：仅检查本地路径线索；请核对目标实例、版本及配置管理关系。没有执行网络或付费测试"
+            });
             if args.fix {
                 report.outcome = "blocked";
                 report

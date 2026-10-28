@@ -1,5 +1,7 @@
 //! Pi adapter: explicit SDK/instance paths, native settings transactions and an owned journal.
 //! OAuth stays in Pi; this adapter never reads, copies or grants credentials.
+pub mod status;
+
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
