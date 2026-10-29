@@ -289,7 +289,10 @@ fn readonly_report(
     }
     for state in &mut report.targets {
         state.lmm_added = match inspection.provider_reference {
-            "pinned" | "other_known_source" | "multiple_known_sources" => "referenced_in_settings",
+            "pinned"
+            | "other_known_source"
+            | "multiple_known_sources"
+            | "known_with_unresolved_sources" => "referenced_in_settings",
             "no_known_source" => "no_known_reference",
             _ => "unknown",
         };

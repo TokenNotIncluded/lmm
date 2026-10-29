@@ -146,9 +146,12 @@ lmm doctor pi --instance /absolute/project \
 
 这条路径只读包清单和所选 agent 的 `settings.json`、项目的 `.pi/settings.json`，
 不需要 Node，不启动目标或 SDK，不读取 `auth.json`，也不创建状态目录或配置锁。
+Linux 检查使用内核的禁止跟随符号链接标志逐级打开目录及设置文件。
 `pi_settings.provider_reference` 区分固定来源、其他已知 LMM 来源和多个引用；
-`no_known_source` 只表示没有识别到这两种 npm/git 来源，不解析本地插件路径，
-不能据此排除其他扩展加载了 LMM。包引用也不代表代码已安装或已加载。
+识别 Pi 1.2.0 常见的 npm 和 Git 来源写法，不解析本地插件路径、npm 别名或未知写法。
+仅有无法识别的来源时结果为 `unknown`；已知 LMM 来源与无法识别的来源并存时为
+`known_with_unresolved_sources`，并仍报告已知引用。即使为 `no_known_source`，
+也不能据此排除其他扩展加载了 LMM。包引用不代表代码已安装或已加载。
 `lmm_added=referenced_in_settings` 与 `lmm_enabled=selected_in_settings` 分别表示
 引用存在和默认服务商字段为 LMM；二者不等同于运行时添加或启用。
 项目的默认服务商、模型字段分别覆盖全局字段，`provider_scope` / `model_scope`
@@ -157,7 +160,8 @@ lmm doctor pi --instance /absolute/project \
 
 未知版本、无法访问、符号链接（含目录祖先）、超过 1 MiB 的文件及已知字段结构不符，
 保留 `unknown` 并使 `status` 返回 3；不存在的设置文件按未设置处理，不创建它们。
-设置是分别读取的快照，不是跨文件原子快照；项目信任、启动参数、会话选择及模型缓存
+设置是分别读取的快照，不是跨文件原子快照；硬链接、绑定挂载以及文件打开后的并发修改
+不在符号链接防护范围内。项目信任、启动参数、会话选择及模型缓存
 可能改变实际行为，本检查不确认它们，也不验证 SDK 内容真实性、安装管理者或配置管理归属。
 仅提供项目路径、未提供 Pi 格式检查参数时，仍保留原有路径检查行为。
 

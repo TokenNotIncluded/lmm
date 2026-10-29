@@ -310,6 +310,78 @@ fn doctor_report_redacts_paths_and_fix_never_writes() {
     }
 }
 
+#[test]
+fn native_pi_source_forms_are_recognized_without_claiming_ownership() {
+    let fixture = Fixture::new();
+    let revision = "f0c54764eb3d73e50790346f0dbab834587fe27b";
+    let sources = [
+        "npm: @tokennotincluded/pi-lmm-provider@0.0.7 ".to_owned(),
+        format!("git:https://github.com/TokenNotIncluded/pi-lmm-provider@{revision}"),
+        format!("git:github.com/TokenNotIncluded/pi-lmm-provider.git@{revision}"),
+        format!("  {SOURCE}  "),
+        format!("git:git@github.com:TokenNotIncluded/pi-lmm-provider@{revision}"),
+        format!("https://github.com/TokenNotIncluded/pi-lmm-provider.git@{revision}"),
+        "git:github.com/TokenNotIncluded/pi-lmm-provider%2Egit".to_owned(),
+        "git:github.com/%54okenNotIncluded/pi-lmm-provider".to_owned(),
+        "git:https://github.com/TokenNotIncluded/pi-lmm-provider?x=1".to_owned(),
+    ];
+    for source in sources {
+        fixture.settings(json!({"packages":[source]}), json!({}));
+        let before = snapshot(fixture.root.path());
+        let (output, report) = fixture.report("status", &[]);
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(
+            report["pi_settings"]["provider_reference"], "other_known_source",
+            "{source}"
+        );
+        assert_eq!(report["targets"][0]["lmm_added"], "referenced_in_settings");
+        assert_eq!(report["targets"][0]["installation"], "unknown");
+        assert_eq!(snapshot(fixture.root.path()), before);
+    }
+}
+
+#[test]
+fn unresolved_sources_are_unknown_and_do_not_hide_a_known_reference() {
+    let fixture = Fixture::new();
+    for source in [
+        "./local-extension",
+        " npm:@tokennotincluded/pi-lmm-provider",
+        "npm:@tokennotincluded/pi-lmm-provider@",
+        "npm:alias@npm:@tokennotincluded/pi-lmm-provider",
+        "npm:other@file:../package",
+        "npm:@tokennotincluded/pi-lmm-provider@npm:other",
+        "git:github.com/TokenNotIncluded/pi-lmm-provider%ZZ",
+        "git:github.com/TokenNotIncluded%2Fpi-lmm-provider",
+    ] {
+        fixture.settings(json!({"packages":[source]}), json!({}));
+        let (_, report) = fixture.report("status", &[]);
+        assert_eq!(
+            report["pi_settings"]["provider_reference"], "unknown",
+            "{source}"
+        );
+        assert_eq!(report["targets"][0]["lmm_added"], "unknown");
+    }
+    fixture.settings(json!({"packages":[SOURCE, "./local-extension"]}), json!({}));
+    let (_, report) = fixture.report("status", &[]);
+    assert_eq!(
+        report["pi_settings"]["provider_reference"],
+        "known_with_unresolved_sources"
+    );
+    assert_eq!(report["targets"][0]["lmm_added"], "referenced_in_settings");
+    for source in [
+        "npm:@tokennotincluded/pi-lmm-provider-else@1.0.0",
+        "git:https://github.com.evil/TokenNotIncluded/pi-lmm-provider",
+    ] {
+        fixture.settings(json!({"packages":[source]}), json!({}));
+        let (_, report) = fixture.report("status", &[]);
+        assert_eq!(
+            report["pi_settings"]["provider_reference"], "no_known_source",
+            "{source}"
+        );
+        assert_eq!(report["targets"][0]["lmm_added"], "no_known_reference");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn symlinked_settings_or_parent_directories_are_not_followed() {

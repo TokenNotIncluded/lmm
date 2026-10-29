@@ -3,11 +3,7 @@
 use crate::discovery::Observation;
 use serde::Serialize;
 use serde_json::{Map, Value};
-use std::{
-    fs,
-    io::{self, Read},
-    path::{Component, Path, PathBuf},
-};
+use std::path::Path;
 
 /// Bound each manifest or settings read to the existing discovery configuration limit.
 const MAX_BYTES: u64 = 1024 * 1024;
@@ -91,51 +87,91 @@ impl Settings {
     }
 }
 
-// Reject symlinked ancestors as well as the selected file; never resolve a package source.
-fn directory(path: &Path) -> Result<bool, ()> {
-    if !path.is_absolute() {
-        return Err(());
-    }
-    let mut current = PathBuf::new();
-    for part in path.components() {
-        if matches!(part, Component::ParentDir) {
+// Each directory descriptor anchors the next lookup, so replacing an ancestor with a
+// symlink cannot redirect the final read. The leaf is opened with O_NOFOLLOW too.
+#[cfg(target_os = "linux")]
+mod safe_read {
+    use super::{MAX_BYTES, Map, Value};
+    use rustix::{
+        fd::OwnedFd,
+        fs::{Mode, OFlags, open, openat},
+        io::Errno,
+    };
+    use std::{
+        fs::File,
+        io::Read,
+        path::{Component, Path},
+    };
+
+    fn directory_fd(path: &Path) -> Result<Option<OwnedFd>, ()> {
+        if !path.is_absolute()
+            || path
+                .components()
+                .any(|part| matches!(part, Component::ParentDir))
+        {
             return Err(());
         }
-        current.push(part);
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.is_dir() => {}
-            Ok(_) => return Err(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
-            Err(_) => return Err(()),
+        let flags = OFlags::PATH | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        let mut current = open("/", flags, Mode::empty()).map_err(|_| ())?;
+        for part in path.components() {
+            match part {
+                Component::RootDir | Component::CurDir => {}
+                Component::Normal(name) => match openat(&current, name, flags, Mode::empty()) {
+                    Ok(next) => current = next,
+                    Err(Errno::NOENT) => return Ok(None),
+                    Err(_) => return Err(()),
+                },
+                _ => return Err(()),
+            }
         }
+        Ok(Some(current))
     }
-    Ok(true)
+
+    pub(super) fn directory(path: &Path) -> Result<bool, ()> {
+        directory_fd(path).map(|fd| fd.is_some())
+    }
+
+    pub(super) fn read_json(path: &Path) -> Result<Option<Map<String, Value>>, ()> {
+        let Some(parent) = directory_fd(path.parent().ok_or(())?)? else {
+            return Ok(None);
+        };
+        let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+        let fd = match openat(&parent, path.file_name().ok_or(())?, flags, Mode::empty()) {
+            Ok(fd) => fd,
+            Err(Errno::NOENT) => return Ok(None),
+            Err(_) => return Err(()),
+        };
+        let file = File::from(fd);
+        let metadata = file.metadata().map_err(|_| ())?;
+        if !metadata.is_file() || metadata.len() > MAX_BYTES {
+            return Err(());
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|_| ())?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(());
+        }
+        if bytes.is_empty() {
+            return Ok(Some(Map::new()));
+        }
+        let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
+        serde_json::from_slice(bytes).map(Some).map_err(|_| ())
+    }
 }
 
-fn read_json(path: &Path) -> Result<Option<Map<String, Value>>, ()> {
-    if !directory(path.parent().ok_or(())?)? {
-        return Ok(None);
-    }
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() && metadata.len() <= MAX_BYTES => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        _ => return Err(()),
-    }
-    let mut bytes = Vec::new();
-    fs::File::open(path)
-        .map_err(|_| ())?
-        .take(MAX_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| ())?;
-    if bytes.len() as u64 > MAX_BYTES {
-        return Err(());
-    }
-    if bytes.is_empty() {
-        return Ok(Some(Map::new()));
-    }
-    // Pi strips a UTF-8 BOM after distinguishing an empty file from nonempty input.
-    let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
-    serde_json::from_slice(bytes).map(Some).map_err(|_| ())
+#[cfg(target_os = "linux")]
+use safe_read::{directory, read_json};
+
+#[cfg(not(target_os = "linux"))]
+fn directory(_path: &Path) -> Result<bool, ()> {
+    Err(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_json(_path: &Path) -> Result<Option<Map<String, Value>>, ()> {
+    Err(())
 }
 
 fn settings(path: &Path) -> (Observation, Option<Settings>) {
@@ -149,17 +185,140 @@ fn settings(path: &Path) -> (Observation, Option<Settings>) {
     }
 }
 
-fn known_source(source: &str) -> bool {
-    if let Some(suffix) = source.strip_prefix("npm:@tokennotincluded/pi-lmm-provider") {
-        return suffix.is_empty() || suffix.starts_with('@');
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SourceKind {
+    Lmm,
+    Other,
+    Unknown,
+}
+
+// Follow Pi 1.2.0's npm spec trimming and Git host/path parsing for known forms.
+// Local and unrecognized forms stay unknown; they are never resolved on disk.
+fn source_kind(source: &str) -> SourceKind {
+    const NPM_NAME: &str = "@tokennotincluded/pi-lmm-provider";
+    if let Some(spec) = source.strip_prefix("npm:") {
+        let spec = spec.trim();
+        let version_at = if let Some(scoped) = spec.strip_prefix('@') {
+            scoped.find('@').map(|index| index + 1)
+        } else {
+            spec.find('@')
+        };
+        let (name, valid_version) = match version_at {
+            Some(index) => (
+                &spec[..index],
+                index + 1 < spec.len()
+                    && spec[index + 1..].chars().all(|c| {
+                        c.is_ascii_alphanumeric()
+                            || matches!(
+                                c,
+                                '.' | '_'
+                                    | '-'
+                                    | '+'
+                                    | '*'
+                                    | '^'
+                                    | '~'
+                                    | '<'
+                                    | '>'
+                                    | '='
+                                    | '|'
+                                    | ' '
+                            )
+                    }),
+            ),
+            None => (spec, true),
+        };
+        let valid_name = !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '@' | '/' | '.' | '_' | '-'))
+            && if let Some(scoped) = name.strip_prefix('@') {
+                scoped.split_once('/').is_some_and(|(scope, package)| {
+                    !scope.is_empty() && !package.is_empty() && !package.contains('/')
+                })
+            } else {
+                !name.contains(['@', '/'])
+            };
+        return match (valid_name && valid_version, name == NPM_NAME) {
+            (true, true) => SourceKind::Lmm,
+            (true, false) => SourceKind::Other,
+            _ => SourceKind::Unknown,
+        };
     }
-    let prefix = "git:github.com/TokenNotIncluded/pi-lmm-provider";
-    source
-        .get(..prefix.len())
-        .is_some_and(|value| value.eq_ignore_ascii_case(prefix))
-        && source
-            .get(prefix.len()..)
-            .is_some_and(|suffix| suffix.is_empty() || suffix.starts_with('@'))
+    let trimmed = source.trim();
+    let git_prefixed = trimmed.starts_with("git:");
+    let git = trimmed.strip_prefix("git:").map_or(trimmed, str::trim);
+    let (host, path) = if let Some(path) = git.strip_prefix("git@github.com:") {
+        if !git_prefixed {
+            return SourceKind::Unknown;
+        }
+        ("github.com".to_owned(), path.to_owned())
+    } else if let Some(path) = git.strip_prefix("github:") {
+        if !git_prefixed {
+            return SourceKind::Unknown;
+        }
+        ("github.com".to_owned(), path.to_owned())
+    } else if git.contains("://") {
+        let Ok(url) = url::Url::parse(git) else {
+            return SourceKind::Unknown;
+        };
+        if !matches!(url.scheme(), "http" | "https" | "ssh" | "git") {
+            return SourceKind::Unknown;
+        }
+        let Some(host) = url.host_str() else {
+            return SourceKind::Unknown;
+        };
+        (
+            host.to_owned(),
+            url.path().trim_start_matches('/').to_owned(),
+        )
+    } else if git_prefixed {
+        let Some((host, path)) = git.split_once('/') else {
+            return SourceKind::Unknown;
+        };
+        if !host.contains('.') {
+            return SourceKind::Unknown;
+        }
+        (host.to_owned(), path.to_owned())
+    } else {
+        return SourceKind::Unknown;
+    };
+    let path = path.split('#').next().unwrap_or_default();
+    let path = match path.split_once('@') {
+        Some((repo, reference)) if !repo.is_empty() && !reference.is_empty() => repo,
+        Some(_) => return SourceKind::Unknown,
+        None => path,
+    };
+    let Some((owner, repo)) = path.split_once('/') else {
+        return SourceKind::Unknown;
+    };
+    // Decode each component separately: an encoded slash must not change the
+    // Git host/path boundary recognized by Pi's hosted-git parser.
+    let Ok(owner) = percent_encoding::percent_decode_str(owner).decode_utf8() else {
+        return SourceKind::Unknown;
+    };
+    let Ok(repo) = percent_encoding::percent_decode_str(repo).decode_utf8() else {
+        return SourceKind::Unknown;
+    };
+    let repo = repo.strip_suffix(".git").unwrap_or(&repo);
+    let valid = |part: &str| {
+        !part.is_empty()
+            && part != "."
+            && part != ".."
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    if !valid(&owner) || !valid(repo) {
+        return SourceKind::Unknown;
+    }
+    if host.eq_ignore_ascii_case("github.com")
+        && owner.eq_ignore_ascii_case("TokenNotIncluded")
+        && repo.eq_ignore_ascii_case("pi-lmm-provider")
+    {
+        SourceKind::Lmm
+    } else {
+        SourceKind::Other
+    }
 }
 
 fn selected<'a>(
@@ -211,16 +370,20 @@ pub fn inspect(project: &Path, sdk: &Path, agent: &Path) -> Inspection {
         result.diagnostic = "settings_unreadable_or_invalid";
         return result;
     };
-    let references: Vec<_> = global
-        .packages
+    let sources: Vec<_> = global.packages.iter().chain(&local.packages).collect();
+    let references: Vec<_> = sources
         .iter()
-        .chain(&local.packages)
-        .filter(|source| known_source(source))
+        .filter(|source| source_kind(source) == SourceKind::Lmm)
         .collect();
-    result.provider_reference = match references.as_slice() {
-        [] => "no_known_source",
-        [source] if source.as_str() == super::SOURCE => "pinned",
-        [_] => "other_known_source",
+    let unresolved = sources
+        .iter()
+        .any(|source| source_kind(source) == SourceKind::Unknown);
+    result.provider_reference = match (references.as_slice(), unresolved) {
+        ([], true) => "unknown",
+        (_, true) => "known_with_unresolved_sources",
+        ([], false) => "no_known_source",
+        ([source], false) if source.as_str() == super::SOURCE => "pinned",
+        ([_], false) => "other_known_source",
         _ => "multiple_known_sources",
     };
     let (provider, provider_scope) = selected(&global.provider, &local.provider);
