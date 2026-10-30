@@ -13,3 +13,8 @@ https://github.com/TokenNotIncluded/api.lmm.best/blob/b8f775b7a2753c4e374101edf5
 Magpie-derived provider preset data is Copyright (c) 2026 yetone, under MIT.
 See third_party/magpie/LICENSE and third_party/magpie/NOTICE.md for the original
 license, pinned upstream source and the scope of the Rust port.
+
+The CC Switch distribution adapter and synthetic native database fixture use
+the reviewed upstream v4.0.22 contract at commit
+b76426741ef93069e2f374ac01ca7ef5760e1d0e. See third_party/cc-switch/NOTICE.md and
+third_party/cc-switch/LICENSE for provenance and the retained MIT license.

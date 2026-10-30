@@ -1,5 +1,8 @@
-//! Native OAuth login, OS credential storage and read-only model discovery.
-//! No model invocation permission is requested and no client secret is embedded.
+//! Native OAuth login, OS credential storage and read-only CLI discovery.
+//! Independent application grants live in `applications`; CLI login itself
+//! never requests model invocation or inherits another client's authority.
+
+pub mod applications;
 
 mod callback;
 mod protocol;

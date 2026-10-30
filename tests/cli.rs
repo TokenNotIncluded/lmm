@@ -152,6 +152,93 @@ fn read_only_commands_do_not_create_state_or_modify_instances() {
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
 }
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn managed_install_preview_is_specific_and_creates_no_state_or_download() {
+    let root = tempfile::tempdir().unwrap();
+    let managed = root.path().join("managed");
+    let output = run(&[
+        "install",
+        "cc-switch",
+        "--managed-root",
+        managed.to_str().unwrap(),
+        "--dry-run",
+        "--json",
+    ]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["outcome"], "planned");
+    assert_eq!(report["managed_plan"]["after"]["version"], "4.0.22");
+    assert_eq!(
+        report["managed_plan"]["plan_id"].as_str().unwrap().len(),
+        64
+    );
+    assert_eq!(report["managed_plan"]["login_required"], false);
+    assert_eq!(report["managed_plan"]["paid_test"], false);
+    assert!(!managed.exists());
+}
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn managed_yes_without_a_reviewed_plan_does_not_write_or_download() {
+    let root = tempfile::tempdir().unwrap();
+    let managed = root.path().join("managed");
+    let output = run(&[
+        "install",
+        "cc-switch",
+        "--managed-root",
+        managed.to_str().unwrap(),
+        "--yes",
+        "--json",
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["outcome"], "confirmation_required");
+    assert!(!managed.exists());
+}
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[test]
+fn managed_wrong_plan_and_restore_without_receipt_cannot_modify_files() {
+    let root = tempfile::tempdir().unwrap();
+    let managed = root.path().join("managed");
+    let output = run(&[
+        "install",
+        "cc-switch",
+        "--managed-root",
+        managed.to_str().unwrap(),
+        "--yes",
+        "--plan-id",
+        &"0".repeat(64),
+        "--json",
+    ]);
+    assert_eq!(output.status.code(), Some(3));
+    assert!(!managed.exists());
+    let output = run(&[
+        "restore",
+        "cc-switch",
+        "--managed-root",
+        managed.to_str().unwrap(),
+        "--dry-run",
+        "--json",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!managed.exists());
+}
+
 #[test]
 fn balance_unattended_mode_fails_before_vault_access() {
     let output = run(&["balance", "--non-interactive", "--json"]);
@@ -193,4 +280,130 @@ fn pi_runtime_failure_is_incomplete_without_creating_project_state() {
     let report: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(report["outcome"], "incomplete");
     assert!(!project.join(".pi").exists());
+}
+
+#[test]
+fn adapter_specific_flags_cannot_start_revoke_or_modify_another_target() {
+    let root = tempfile::tempdir().unwrap();
+    let managed = root.path().join("managed");
+    let project = root.path().join("project");
+    let managed_path = managed.to_str().unwrap();
+    let project_path = project.to_str().unwrap();
+    let id = "a".repeat(64);
+    let cases = [
+        vec![
+            "run",
+            "cc-switch",
+            "--managed-root",
+            managed_path,
+            "--dry-run",
+            "--json",
+        ],
+        vec![
+            "run",
+            "cc-switch",
+            "--managed-root",
+            managed_path,
+            "--yes",
+            "--json",
+        ],
+        vec![
+            "disconnect",
+            "cc-switch",
+            "--installation-id",
+            &id,
+            "--dry-run",
+            "--json",
+        ],
+        vec![
+            "disconnect",
+            "cc-switch",
+            "--installation-id",
+            &id,
+            "--yes",
+            "--json",
+        ],
+        vec![
+            "setup",
+            "pi",
+            "--instance",
+            project_path,
+            "--installation-id",
+            &id,
+            "--dry-run",
+            "--json",
+        ],
+        vec![
+            "setup",
+            "pi",
+            "--instance",
+            project_path,
+            "--model-id",
+            "fixture-model",
+            "--dry-run",
+            "--json",
+        ],
+        vec![
+            "install",
+            "pi",
+            "--managed-root",
+            managed_path,
+            "--dry-run",
+            "--json",
+        ],
+        vec![
+            "install",
+            "pi",
+            "--instance",
+            project_path,
+            "--yes",
+            "--plan-id",
+            &id,
+            "--json",
+        ],
+        vec![
+            "restore",
+            "pi",
+            "--instance",
+            project_path,
+            "--change",
+            &id,
+            "--dry-run",
+            "--json",
+        ],
+        vec![
+            "run",
+            "pi",
+            "--instance",
+            project_path,
+            "--installation-id",
+            &id,
+            "--dry-run",
+            "--json",
+        ],
+        vec![
+            "setup",
+            "cc-switch",
+            "--node",
+            project_path,
+            "--dry-run",
+            "--json",
+        ],
+        vec![
+            "update",
+            "--all",
+            "--node",
+            project_path,
+            "--dry-run",
+            "--json",
+        ],
+    ];
+    for args in cases {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(report["outcome"], "invalid_request", "{args:?}");
+        assert!(!managed.exists(), "{args:?}");
+        assert!(!project.exists(), "{args:?}");
+    }
 }

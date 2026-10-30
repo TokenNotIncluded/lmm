@@ -6,9 +6,10 @@ LMM = **Language Model Mesh**，中文「语言模型网络」。Mesh 表达互�
 
 这是 [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm) 独立维护的 Rust CLI。crates.io 包名为 `lmm-cli`，可执行文件名为 `lmm`；父仓库通过子模块锁定版本，CLI 的构建和依赖独立管理。
 
-**当前是开发预览，已实现服务商预设查询、只读发现、桌面 OAuth 登录和模型目录读取，不是可完成应用接入的产品版本。**
-除下文明确限定的 Pi Provider 适配器外，`setup`、安装、同步、更新、恢复、解除接入、卸载和启动会明确返回阻塞原因，
-不会以空操作返回成功。没有修改第三方软件或生产服务。
+**当前是开发预览，已实现服务商预设、桌面 OAuth、模型目录与余额读取、限定版本的 Pi Provider 适配器，以及 CC Switch 的 Linux 受管发行包生命周期。**
+Pi 使用显式指定的官方 Pi 1.2.0 SDK 安装和恢复固定 Provider，授权与激活仍在 Pi 内完成。
+CC Switch 支持固定官方 AppImage 的安装、更新、按回执恢复、卸载、显式启动和 schema 24 的只读检查；独立应用授权、仅添加配置、目录同步和撤销分别使用其管理合同。
+原生应用激活与真实调用需要单独验收，其他软件的写入流程继续明确阻塞。详细边界见 [受管发行包说明](docs/managed-distributions.md) 和 [原生凭据接入说明](docs/native-credential-evidence.md)。
 
 完整产品要求见 [原始需求](docs/requirements.zh-CN.md)。完整需求保留为目标，不因当前实现范围而缩减。
 与 Magpie 的功能对照及下一步任务见 [Magpie 对照](docs/magpie-parity.md)。实现使用 Rust，不包装或启动 Magpie，也不依赖 Go 运行时。
@@ -30,8 +31,11 @@ Linux OAuth 功能另需运行中的 Secret Service；Windows/macOS 使用系统
 
 - `lmm presets [关键词] [--json]`：查询 56 项内置服务商预设，离线运行，不读取密钥、不访问服务商。
 - `lmm catalog [关键词]`：搜索明确项目身份的软件目录，分别说明安装、接入、维护能力。
-- `lmm status [软件]`：当前进程 OS/架构、WSL/容器/SSH 线索、PATH 候选文件及显式实例路径检查。
-- `lmm doctor [软件] --report`：只读诊断摘要，移除实例和文件路径，不读取配置内容。
+- `lmm status [软件]`：当前环境与 PATH 线索；指定 CC Switch 时校验受管发行包，显式 `--instance` 时读取 schema 24 的非凭据元数据；Pi 支持下文限定的显式设置检查。
+- `lmm install|update|uninstall cc-switch --dry-run --json`：可执行的固定发行包计划；确认时带原 `--yes --plan-id`。
+- `lmm restore cc-switch --change <change_id> --dry-run --json`：按回执恢复受管版本，保留后续修改和应用数据。
+- `lmm run cc-switch`：启动已校验的受管程序；启动成功不代表应用健康或模型调用通过。
+- `lmm doctor [软件] --report`：只读诊断摘要，移除实例和文件路径，仅输出各适配器允许的状态字段。
 - `lmm setup [软件] --dry-run`：生成带阻塞原因的预览；无目标且有终端时可选择软件。
 - `--json`：结构化结果；自动禁用交互。`--non-interactive` 同样禁止等待输入。
 - `lmm login`：桌面浏览器 PKCE 登录；凭据保存于系统凭据库。
@@ -128,10 +132,12 @@ lmm setup astrbot --dry-run --json
 ```
 
 Windows 使用当前 Windows 环境的绝对路径。AstrBot 只检查所选根目录的
-`data/cmd_config.json` 路径；CC Switch 检查 `cc-switch.db` 路径，不打开数据库。
+`data/cmd_config.json` 路径；CC Switch 在显式 `--instance` 时打开只读 SQLite 事务，仅查询 schema 和非凭据的供应商元数据。
 不自动搜索项目、其他用户、Docker 实例、局域网或远程机器。
 PATH 文件可能是包装脚本或来自其他环境，因此只标为线索；不执行 `--version`。
 符号链接和不可访问项显示 `unknown`，文件缺失只描述被检查的那个位置。
+
+CC Switch 的受管安装与 schema 24 配置管理者依据本地日志和原生数据库确认；授权、实际模型及真实调用路径不凭这些事实推断。
 
 Pi 的只读设置检查仅支持 Linux、声明为官方 Pi 1.2.0 的 npm 包格式，必须显式指定三个目录：
 
@@ -171,9 +177,9 @@ Linux 检查使用内核的禁止跟随符号链接标志逐级打开目录及�
 `doctor` 即使配置检查通过也返回 3，`--fix` 仍阻止写入。
 `status`、`doctor`、`setup --dry-run` 没有网络调用或付费验证。
 
-`--all` 不把目录视为安装列表；当前没有合格适配器，因此返回空计划与退出码 3。
+`--all` 不把目录视为安装列表。`update --all` 仅包含已由 LMM 管理的 CC Switch；没有受管安装时返回阻塞。应用接入的 `setup --all` 仍无可执行目标。
 `--yes` 不能消除能力缺失，不能代表支付、重新授权或切换服务商的同意。
-单独 `install` 的计划不要求登录。
+单独 `install` 不要求登录。CC Switch 的写操作需确认精确计划，不能用 `--yes` 跳过计划 ID。
 
 ## 开发
 
@@ -197,19 +203,19 @@ mise exec -- cargo build --locked --release
 
 | 退出码 | 含义 |
 | --- | --- |
-| 0 | 目录/只读查询已输出；请继续检查各层状态 |
+| 0 | 查询或可执行预览已输出，或受管操作已提交；请继续检查各层状态 |
 | 2 | 参数不完整、目标未知、无法选择目标或输出失败 |
 | 3 | 能力未实现、检查未完成或操作被阻止 |
 
 `restore_fields` 是内存中的三方字段恢复算法：仅在字段仍等于 LMM 写入值时撤销，
 保留用户后续修改；任一冲突使整个目标的计算失败。它拒绝整对象、数组及数组索引恢复。
-它没有连接文件写入、日志、授权或命令执行，不能当作 `lmm restore` 已完成的证据。
+该字段算法仍未连接应用配置写入；CC Switch 的 `restore` 默认恢复受管发行包版本，`--configuration` 按原生数据库回执恢复 LMM 配置。这些路径使用各自的持久日志、原生版本门禁和三方状态检查。
 同样，付费检查函数只是客户端规划规则，**不能代替服务端消费限制**。
 
 指纹函数只用于有界配置快照的内容比较，不是原子写锁。未来接入必须使用目标软件原生
 事务/管理接口解决并发写入；“比较哈希后覆盖文件”不满足完整并发修改验收。
 
-只读环境查询不建立状态目录；OAuth 操作会创建上述锁目录并使用系统凭据库。
+只读检查和 `--dry-run` 不建立状态目录；确认的受管安装建立自己的私有目录与无凭据日志。OAuth 操作使用独立锁与系统凭据库。
 LMM 不复制第三方凭据、不上传遥测、不进行付费调用。
 分享前建议使用 `doctor --report --json`；普通 `status` 会显示本地路径。
 
