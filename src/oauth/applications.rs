@@ -4,7 +4,7 @@
 
 use super::{AuthError, ModelCatalog, Transport, callback, now, protocol, storage};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::{RngCore, rngs::OsRng};
+use rand::{TryRng, rngs::SysRng};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, time::Duration};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -396,7 +396,7 @@ impl RotationExchange for ApplicationTransport<'_> {
 }
 fn new_operation() -> Result<String> {
     let mut bytes = Zeroizing::new([0_u8; 32]);
-    OsRng
+    SysRng
         .try_fill_bytes(&mut *bytes)
         .map_err(|_| ApplicationError::Invalid)?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())

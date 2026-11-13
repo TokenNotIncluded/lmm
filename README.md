@@ -23,7 +23,7 @@ lmm --help
 
 服务商预设查询是本仓库的新实现，本轮尚未发布；体验这项功能请使用下文的源码构建命令。
 
-这是开发预览版，功能边界见上文。Cargo 安装需要 Rust 1.88 或更新版本及本机编译工具；
+这是开发预览版，功能边界见上文。Cargo 安装需要 Rust 1.99.1 或更新版本及本机编译工具；
 面向无需开发环境用户的二进制安装器尚未提供。
 Linux OAuth 功能另需运行中的 Secret Service；Windows/macOS 使用系统凭据库。
 
@@ -107,7 +107,7 @@ MCP 或账号管理权限。CLI 登录成功不代表 AstrBot 或 CC Switch 已�
 Windows 使用 Credential Manager，macOS 使用 Keychain，Linux 使用 Secret Service。
 凭据库可能显示系统解锁提示；不可用时明确报错，不使用明文文件后备。
 因此认证命令暂不支持 `--non-interactive`，会在访问凭据库之前退出；`models --json`、`balance --json` 只禁用 CLI 文本交互，系统仍可能要求解锁。
-源码构建将 Linux D-Bus 库静态编入，
+Linux 通过 zbus 访问 Secret Service，不再静态链接 libdbus；
 运行时仍需要可用的 Secret Service；不能将开发机单测当作三个系统的实际凭据库验收。
 
 认证操作使用当前用户状态目录中的无密钥 `oauth.lock`，防止并发登录/刷新/退出。

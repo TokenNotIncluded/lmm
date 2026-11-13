@@ -371,3 +371,15 @@ fn balance_rejects_inconsistent_integer_denominations() {
         assert_eq!(task.join().unwrap().len(), 2);
     }
 }
+
+#[test]
+fn production_transport_rejects_plain_http_before_connecting() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let transport = Transport::new("https://transport.synthetic.invalid").unwrap();
+    let url = format!("http://{}/must-not-connect", listener.local_addr().unwrap());
+    assert!(transport.client.get(url).send().is_err());
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+    );
+}

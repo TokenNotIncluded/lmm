@@ -627,10 +627,10 @@ impl Manager {
             paid_test: false,
             no_change,
         };
-        plan.plan_id = format!(
-            "{:x}",
-            Sha256::digest(serde_json::to_vec(&plan).map_err(|_| ManagedError::Storage)?)
-        );
+        plan.plan_id = crate::hex::digest(Sha256::digest(
+            serde_json::to_vec(&plan).map_err(|_| ManagedError::Storage)?,
+        ))
+        .map_err(|_| ManagedError::Storage)?;
         Ok(plan)
     }
 
@@ -701,10 +701,10 @@ impl Manager {
             }
             let mut check = pending.plan.clone();
             check.plan_id.clear();
-            let digest = format!(
-                "{:x}",
-                Sha256::digest(serde_json::to_vec(&check).map_err(|_| ManagedError::InvalidState)?)
-            );
+            let digest = crate::hex::digest(Sha256::digest(
+                serde_json::to_vec(&check).map_err(|_| ManagedError::InvalidState)?,
+            ))
+            .map_err(|_| ManagedError::InvalidState)?;
             if digest != pending.plan.plan_id {
                 return Err(ManagedError::InvalidState);
             }
@@ -783,7 +783,8 @@ trait Download {
 struct HttpDownload;
 impl Download for HttpDownload {
     fn fetch(&mut self, root: &Path, release: &Release) -> Result<(), ManagedError> {
-        let client = reqwest::blocking::Client::builder()
+        let client = crate::http_client::builder()
+            .map_err(|_| ManagedError::Download)?
             .timeout(Duration::from_secs(600))
             .connect_timeout(Duration::from_secs(20))
             .user_agent(concat!("lmm/", env!("CARGO_PKG_VERSION")))

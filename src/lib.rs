@@ -6,6 +6,8 @@ pub mod catalog;
 pub mod cc_switch;
 pub mod discovery;
 pub mod environment;
+mod hex;
+mod http_client;
 pub mod managed;
 pub mod oauth;
 pub mod plan;

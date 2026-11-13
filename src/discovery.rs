@@ -202,5 +202,5 @@ pub fn fingerprint(path: &Path) -> io::Result<String> {
             "configuration exceeds size limit",
         ));
     }
-    Ok(format!("{:x}", Sha256::digest(data)))
+    crate::hex::digest(Sha256::digest(data))
 }

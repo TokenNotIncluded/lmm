@@ -1,6 +1,6 @@
 use super::{ManagedError, Release};
 use fs2::FileExt;
-use rand::{RngCore, rngs::OsRng};
+use rand::{TryRng, rngs::SysRng};
 use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File, OpenOptions},
@@ -12,7 +12,7 @@ const OWNER: &[u8] = b"lmm.cli.managed-software.v1:cc-switch\n";
 
 pub(super) fn nonce() -> Result<String, ManagedError> {
     let mut bytes = [0_u8; 32];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut bytes)
         .map_err(|_| ManagedError::Storage)?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
@@ -222,7 +222,9 @@ pub(super) fn verify(path: &Path, release: &Release) -> Result<bool, ManagedErro
         count += size as u64;
         hash.update(&buffer[..size]);
     }
-    if count != release.size || format!("{:x}", hash.finalize()) != release.sha256 {
+    if count != release.size
+        || crate::hex::digest(hash.finalize()).map_err(|_| ManagedError::Storage)? != release.sha256
+    {
         return Err(ManagedError::ModifiedArtifact);
     }
     Ok(true)
@@ -264,7 +266,10 @@ pub(super) fn store_download(
                 .map_err(|_| ManagedError::Storage)?;
             hash.update(&buffer[..size]);
         }
-        if count != release.size || format!("{:x}", hash.finalize()) != release.sha256 {
+        if count != release.size
+            || crate::hex::digest(hash.finalize()).map_err(|_| ManagedError::Integrity)?
+                != release.sha256
+        {
             return Err(ManagedError::Integrity);
         }
         #[cfg(unix)]

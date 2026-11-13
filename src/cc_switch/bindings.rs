@@ -96,7 +96,7 @@ fn encode(value: &impl Serialize) -> Result<String> {
     serde_json::to_string(value).map_err(|_| BindingError::Invalid)
 }
 fn digest(value: &impl Serialize) -> Result<String> {
-    Ok(format!("{:x}", Sha256::digest(encode(value)?.as_bytes())))
+    crate::hex::digest(Sha256::digest(encode(value)?.as_bytes())).map_err(|_| BindingError::Storage)
 }
 fn decode<T: serde::de::DeserializeOwned>(value: &str) -> Result<T> {
     if value.len() > 8 * 1024 * 1024 {
@@ -372,7 +372,7 @@ fn provider(connection: &Connection, id: &str) -> Result<Option<ProviderRow>> {
                 }
             }
             Ok((
-                format!("{:x}", digest.finalize()),
+                digest.finalize(),
                 row.get::<_, String>(3)?,
                 row.get::<_, bool>(12)?,
             ))
@@ -380,7 +380,7 @@ fn provider(connection: &Connection, id: &str) -> Result<Option<ProviderRow>> {
         .optional()?;
     row.map(|(digest, settings, selected)| {
         Ok(ProviderRow {
-            digest,
+            digest: crate::hex::digest(digest).map_err(|_| BindingError::Storage)?,
             settings: decode(&settings)?,
             selected,
         })

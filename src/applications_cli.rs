@@ -8,7 +8,7 @@ use lmm::{
         applications::{self, ApplicationInstance},
     },
 };
-use rand::{RngCore, rngs::OsRng};
+use rand::{TryRng, rngs::SysRng};
 use serde::Serialize;
 use std::{
     io::{self, IsTerminal, Write},
@@ -81,7 +81,7 @@ fn instance(issuer: &str, id: &str, label: &str) -> Result<ApplicationInstance, 
 }
 fn random_id() -> Result<String, String> {
     let mut bytes = [0_u8; 32];
-    OsRng
+    SysRng
         .try_fill_bytes(&mut bytes)
         .map_err(|_| "无法创建应用实例")?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())

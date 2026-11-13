@@ -114,7 +114,8 @@ impl Transport {
         Ok(Self {
             issuer: issuer.to_owned(),
             resource: format!("{issuer}/api/oauth2"),
-            client: Client::builder()
+            client: crate::http_client::builder()
+                .map_err(|_| AuthError::Network)?
                 .https_only(true)
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(5))

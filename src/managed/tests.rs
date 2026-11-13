@@ -24,7 +24,7 @@ fn fixture(root: &Path, version: &str, bytes: &[u8]) -> (Manager, FixtureDownloa
     manager.candidate.download_url = format!(
         "https://github.com/farion1231/cc-switch/releases/download/v{version}/CC-Switch-v{version}-Linux-x86_64.AppImage"
     );
-    manager.candidate.sha256 = format!("{:x}", Sha256::digest(bytes));
+    manager.candidate.sha256 = crate::hex::digest(Sha256::digest(bytes)).unwrap();
     manager.candidate.size = bytes.len() as u64;
     (
         manager,
