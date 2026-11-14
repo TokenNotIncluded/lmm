@@ -89,6 +89,19 @@ pub struct Model {
     pub name: String,
     pub apis: Vec<String>,
     pub pricing: Pricing,
+    pub metadata: Option<ModelMetadata>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ModelMetadata {
+    pub context_window: Option<u64>,
+    pub max_input_tokens: Option<u64>,
+    pub max_output_tokens: Option<u64>,
+    pub input_modalities: Option<Vec<String>>,
+    pub output_modalities: Option<Vec<String>>,
+    pub reasoning: Option<bool>,
+    pub tool_call: Option<bool>,
+    pub source: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -99,6 +112,10 @@ pub struct Pricing {
     pub input: Option<f64>,
     pub output: Option<f64>,
     pub request: Option<f64>,
+    pub cache_read: Option<f64>,
+    pub cache_write: Option<f64>,
+    pub group_multiplier: Option<f64>,
+    pub trust_multiplier: Option<f64>,
     pub final_cost_depends_on_usage: bool,
 }
 

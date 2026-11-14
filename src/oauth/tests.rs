@@ -383,3 +383,35 @@ fn production_transport_rejects_plain_http_before_connecting() {
         matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
     );
 }
+
+#[test]
+fn catalog_retains_dynamic_metadata_and_effective_price_dimensions() {
+    let value = serde_json::json!({
+        "schema_version":1,"resource":"https://example.test/api/oauth2","updated_at":1,
+        "models":[{"id":"route","group":"default","upstream_model":"future-model","name":"Future",
+        "apis":["openai-completions"],"metadata":{"context_window":null,"max_input_tokens":64000,
+        "max_output_tokens":8000,"input_modalities":["text"],"output_modalities":["text"],
+        "reasoning":null,"tool_call":true,"source":"server","future_field":1},
+        "pricing":{"currency":"USD","unit":"million_tokens","price_basis":"effective_user_rates",
+        "input":1.0,"output":2.0,"cache_read":0.25,"cache_write":null,"request":null,
+        "group_multiplier":2.0,"trust_multiplier":0.5,"final_cost_depends_on_usage":true}}]
+    });
+    let catalog: ModelCatalog = serde_json::from_value(value).unwrap();
+    let model = &catalog.models[0];
+    assert_eq!(
+        model.metadata.as_ref().unwrap().max_input_tokens,
+        Some(64000)
+    );
+    let output = serde_json::to_value(&catalog).unwrap();
+    assert_eq!(
+        output["models"][0]["metadata"]["context_window"],
+        serde_json::Value::Null
+    );
+    assert_eq!(output["models"][0]["pricing"]["input"], 1.0);
+    assert_eq!(output["models"][0]["pricing"]["group_multiplier"], 2.0);
+    assert_eq!(output["models"][0]["pricing"]["trust_multiplier"], 0.5);
+    assert_eq!(
+        output["models"][0]["pricing"]["cache_write"],
+        serde_json::Value::Null
+    );
+}

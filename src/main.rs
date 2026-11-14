@@ -1256,6 +1256,7 @@ fn execute(cli: &Cli) -> Result<u8, String> {
                         .map_err(|_| "无法输出模型")?;
                         for model in &catalog.models {
                             writeln!(output, "{:?} · {:?} · {:?}\n  价格单位：{:?} / {:?}；输入：{:?}，输出：{:?}，每次请求：{:?}；依据：{:?}\n  null/None 表示未知；未调用或切换模型。", model.id, model.upstream_model, model.group, model.pricing.currency, model.pricing.unit, model.pricing.input, model.pricing.output, model.pricing.request, model.pricing.price_basis).map_err(|_| "无法输出模型")?;
+                            writeln!(output, "  元数据：{:?}\n  缓存读取/写入：{:?} / {:?}；分组/信任倍率：{:?} / {:?}（价格已含倍率）", model.metadata, model.pricing.cache_read, model.pricing.cache_write, model.pricing.group_multiplier, model.pricing.trust_multiplier).map_err(|_| "无法输出模型")?;
                         }
                     }
                     Ok(0)

@@ -39,7 +39,7 @@ Linux OAuth 功能另需运行中的 Secret Service；Windows/macOS 使用系统
 - `lmm setup [软件] --dry-run`：生成带阻塞原因的预览；无目标且有终端时可选择软件。
 - `--json`：结构化结果；自动禁用交互。`--non-interactive` 同样禁止等待输入。
 - `lmm login`：桌面浏览器 PKCE 登录；凭据保存于系统凭据库。
-- `lmm models [--json]`：获取当前授权模型及价格，不调用模型、不切换配置。
+- `lmm models [--json]`：获取当前授权模型、服务器上下文/能力元数据、缓存价格及分组/信任倍率；未知保留 null，价格已含倍率，不调用模型、不切换配置。
 - `lmm balance [--json]`：读取余额 V2，保留服务端整数积分及美元单位；未知单位或失败不会显示为零。
 - `lmm logout`：撤销当前 issuer 下的 CLI 令牌族，成功后删除本地凭据；不影响 Pi/DSH 等其他应用。
 
