@@ -47,27 +47,25 @@ type Result<T> = std::result::Result<T, BindingError>;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum BindingError {
-    #[error("CC Switch 目标、模型选择或凭据命令路径无效")]
+    #[error("{}", crate::i18n::english("binding.invalid"))]
     Invalid,
-    #[error("需要仍有效且属于该实例的独立 CC Switch 模型授权")]
+    #[error("{}", crate::i18n::english("binding.authorization"))]
     Grant,
-    #[error("此数据库不是已核验的 CC Switch schema 24，或本适配器的历史结构不完整")]
+    #[error("{}", crate::i18n::english("binding.schema"))]
     Schema,
-    #[error("目标已被修改、已有同名项目或原生数据库写入正在进行；请重新预览")]
+    #[error("{}", crate::i18n::english("binding.conflict"))]
     Conflict,
-    #[error("原模型已不在当前授权目录中；已保留选择，请先明确选择另一个模型")]
+    #[error("{}", crate::i18n::english("binding.model_removed"))]
     SelectedModelUnavailable,
-    #[error("变更回执或本实例的管理记录不存在")]
+    #[error("{}", crate::i18n::english("binding.receipt"))]
     NotFound,
-    #[error(
-        "删除供应商需要 CC Switch 原生管理入口确认 live、代理和 Stack 引用；仅凭数据库选择状态不能删除"
-    )]
+    #[error("{}", crate::i18n::english("binding.delete"))]
     NativeRemoval,
-    #[error("必须确认当前预览的精确 plan_id")]
+    #[error("{}", crate::i18n::english("binding.confirm"))]
     Confirmation,
-    #[error("CC Switch 数据库不可用")]
+    #[error("{}", crate::i18n::english("binding.database"))]
     Storage,
-    #[error("数据库提交结果未知；请先使用原 change_id 查询回执，不能新建操作重试")]
+    #[error("{}", crate::i18n::english("binding.unknown"))]
     CommitUnknown,
 }
 impl From<rusqlite::Error> for BindingError {

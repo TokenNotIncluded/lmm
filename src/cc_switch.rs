@@ -19,13 +19,13 @@ pub const SCHEMA_VERSION: u32 = 24;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DatabaseError {
-    #[error("需要明确、存在且不经过符号链接的 CC Switch 数据库")]
+    #[error("{}", crate::i18n::english("cc_switch.path"))]
     Path,
-    #[error("CC Switch 数据库忙、不可读或内容损坏")]
+    #[error("{}", crate::i18n::english("cc_switch.database"))]
     Storage,
-    #[error("CC Switch 数据库版本或表结构不属于已核验的 schema 24")]
+    #[error("{}", crate::i18n::english("cc_switch.schema"))]
     UnsupportedSchema,
-    #[error("CC Switch 数据超出语义检查的有界范围")]
+    #[error("{}", crate::i18n::english("cc_switch.bounds"))]
     Limit,
 }
 

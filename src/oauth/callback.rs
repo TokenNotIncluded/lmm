@@ -1,4 +1,5 @@
 use super::AuthError;
+use crate::i18n::text;
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
@@ -48,9 +49,9 @@ impl Callback {
                     }
                     let result = read_request(&mut stream, &host, issuer, state, remaining);
                     let body = if result.is_ok() {
-                        "Authorization received. Return to LMM CLI to check completion."
+                        text("callback.received")
                     } else {
-                        "Invalid or denied authorization. Return to LMM CLI."
+                        text("callback.invalid")
                     };
                     let status = if result.is_ok() {
                         "200 OK"

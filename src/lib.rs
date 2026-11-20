@@ -8,6 +8,7 @@ pub mod discovery;
 pub mod environment;
 mod hex;
 mod http_client;
+pub mod i18n;
 pub mod managed;
 pub mod oauth;
 pub mod plan;

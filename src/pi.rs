@@ -2,6 +2,7 @@
 //! OAuth stays in Pi; this adapter never reads, copies or grants credentials.
 pub mod status;
 
+use crate::i18n::english;
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -14,8 +15,9 @@ use std::{
 pub const SOURCE: &str =
     "git:github.com/TokenNotIncluded/pi-lmm-provider@f0c54764eb3d73e50790346f0dbab834587fe27b";
 const BRIDGE: &str = include_str!("pi-bridge.mjs");
-const ERROR: &str =
-    "Pi 接入未完成；请检查显式路径、Pi 1.2.0、配置冲突或待恢复日志。未读取或复制应用凭据";
+fn failure() -> &'static str {
+    english("pi.incomplete")
+}
 
 #[derive(Debug)]
 pub struct Target<'a> {
@@ -48,16 +50,16 @@ pub struct Outcome {
 impl Target<'_> {
     fn validate(&self) -> Result<(), String> {
         if !cfg!(target_os = "linux") {
-            return Err("Pi 原生写入适配器目前仅验证 Linux；当前平台尚未开放".into());
+            return Err(english("pi.platform").into());
         }
         for path in [self.node, self.sdk, self.project, self.agent_dir] {
             if !path.is_absolute()
                 || fs::symlink_metadata(path)
-                    .map_err(|_| ERROR)?
+                    .map_err(|_| failure())?
                     .file_type()
                     .is_symlink()
             {
-                return Err(ERROR.into());
+                return Err(failure().into());
             }
         }
         if !self.node.is_file()
@@ -65,35 +67,36 @@ impl Target<'_> {
                 .iter()
                 .all(|p| p.is_dir())
         {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&fs::read(self.sdk.join("package.json")).map_err(|_| ERROR)?)
-                .map_err(|_| ERROR)?;
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(self.sdk.join("package.json")).map_err(|_| failure())?,
+        )
+        .map_err(|_| failure())?;
         if manifest["name"] != "@earendil-works/pi-coding-agent" || manifest["version"] != "1.2.0" {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
         let version = Command::new(self.node)
             .arg("--version")
             .output()
-            .map_err(|_| ERROR)?;
-        let text = std::str::from_utf8(&version.stdout).map_err(|_| ERROR)?;
+            .map_err(|_| failure())?;
+        let text = std::str::from_utf8(&version.stdout).map_err(|_| failure())?;
         let parts: Vec<_> = text
             .trim()
             .strip_prefix('v')
-            .ok_or(ERROR)?
+            .ok_or(failure())?
             .split('.')
             .collect();
         let major = parts
             .first()
             .and_then(|value| value.parse::<u32>().ok())
-            .ok_or(ERROR)?;
+            .ok_or(failure())?;
         let minor = parts
             .get(1)
             .and_then(|value| value.parse::<u32>().ok())
-            .ok_or(ERROR)?;
+            .ok_or(failure())?;
         if !version.status.success() || major < 22 || (major == 22 && minor < 19) {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
         Ok(())
     }
@@ -105,20 +108,20 @@ impl Target<'_> {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|_| ERROR)?;
+            .map_err(|_| failure())?;
         let request = serde_json::json!({"sdk":self.sdk,"cwd":self.project,"agentDir":self.agent_dir,"source":SOURCE,"action":action});
-        let input = serde_json::to_vec(&request).map_err(|_| ERROR)?;
+        let input = serde_json::to_vec(&request).map_err(|_| failure())?;
         child
             .stdin
             .take()
-            .ok_or(ERROR)?
+            .ok_or(failure())?
             .write_all(&input)
-            .map_err(|_| ERROR)?;
-        let output = child.wait_with_output().map_err(|_| ERROR)?;
+            .map_err(|_| failure())?;
+        let output = child.wait_with_output().map_err(|_| failure())?;
         if !output.status.success() || output.stdout.len() > 64 * 1024 {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
-        serde_json::from_slice(&output.stdout).map_err(|_| ERROR.into())
+        serde_json::from_slice(&output.stdout).map_err(|_| failure().into())
     }
     fn journal(&self) -> PathBuf {
         self.project.join(".pi/lmm-owned.json")
@@ -128,12 +131,12 @@ impl Target<'_> {
         match fs::symlink_metadata(&path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= 4096 => {}
-            _ => return Err(ERROR.into()),
+            _ => return Err(failure().into()),
         }
-        let receipt: Receipt =
-            serde_json::from_slice(&fs::read(path).map_err(|_| ERROR)?).map_err(|_| ERROR)?;
+        let receipt: Receipt = serde_json::from_slice(&fs::read(path).map_err(|_| failure())?)
+            .map_err(|_| failure())?;
         if receipt.version != 1 || receipt.source != SOURCE {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
         Ok(Some(receipt))
     }
@@ -147,7 +150,7 @@ impl Target<'_> {
             use std::os::unix::fs::OpenOptionsExt;
             opts.mode(0o600);
         }
-        let mut file = opts.open(&temp).map_err(|_| ERROR)?;
+        let mut file = opts.open(&temp).map_err(|_| failure())?;
         let result = (|| {
             serde_json::to_writer(
                 &mut file,
@@ -157,12 +160,12 @@ impl Target<'_> {
                     phase: phase.into(),
                 },
             )
-            .map_err(|_| ERROR)?;
-            file.sync_all().map_err(|_| ERROR)?;
-            fs::rename(&temp, &path).map_err(|_| ERROR)?;
-            File::open(path.parent().ok_or(ERROR)?)
+            .map_err(|_| failure())?;
+            file.sync_all().map_err(|_| failure())?;
+            fs::rename(&temp, &path).map_err(|_| failure())?;
+            File::open(path.parent().ok_or(failure())?)
                 .and_then(|dir| dir.sync_all())
-                .map_err(|_| ERROR)?;
+                .map_err(|_| failure())?;
             Ok(())
         })();
         if result.is_err() {
@@ -173,14 +176,14 @@ impl Target<'_> {
     pub fn run(&self) -> Result<u8, String> {
         self.validate()?;
         if self.native("inspect")?["installed"] != true {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
         let status = Command::new(self.node)
             .arg(self.sdk.join("dist/bundle/cli.js"))
             .current_dir(self.project)
             .env("PI_CODING_AGENT_DIR", self.agent_dir)
             .status()
-            .map_err(|_| ERROR)?;
+            .map_err(|_| failure())?;
         Ok(status
             .code()
             .and_then(|code| u8::try_from(code).ok())
@@ -197,34 +200,34 @@ impl Target<'_> {
             authorization: "not_checked_use_pi_login",
             activation: "preserved",
             paid_call: false,
-            notes: "仅管理所选项目中的固定 LMM Provider；Pi 本体、其他插件、凭据和默认模型保持用户管理。安装后在 Pi /login 选择 LMM，再用 /model 明确选择模型。",
+            notes: english("pi.scope"),
         };
         if dry_run {
             return Ok(result);
         }
         if action == "sync" {
             if self.native("inspect")?["installed"] != true {
-                return Err(ERROR.into());
+                return Err(failure().into());
             }
             result.state = "provider_present_catalog_refresh_pending";
             return Ok(result);
         }
         if !yes {
-            return Err("请先用 --dry-run 查看固定来源和实例，再用 --yes 确认该范围".into());
+            return Err(english("pi.confirm").into());
         }
         let directory = self.project.join(".pi");
         if directory.exists()
             && fs::symlink_metadata(&directory)
-                .map_err(|_| ERROR)?
+                .map_err(|_| failure())?
                 .file_type()
                 .is_symlink()
         {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
         if matches!(action, "restore" | "disconnect") && self.receipt()?.is_none() {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
-        fs::create_dir_all(&directory).map_err(|_| ERROR)?;
+        fs::create_dir_all(&directory).map_err(|_| failure())?;
         // Pi 1.2.0 reads an absent settings file before acquiring its first lock.
         // Create exclusively first, so all native mutations read under an existing-file lock.
         let settings_path = directory.join("settings.json");
@@ -237,22 +240,22 @@ impl Target<'_> {
         }
         match settings_options.open(&settings_path) {
             Ok(mut file) => {
-                file.write_all(b"{}\n").map_err(|_| ERROR)?;
-                file.sync_all().map_err(|_| ERROR)?;
+                file.write_all(b"{}\n").map_err(|_| failure())?;
+                file.sync_all().map_err(|_| failure())?;
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let metadata = fs::symlink_metadata(&settings_path).map_err(|_| ERROR)?;
+                let metadata = fs::symlink_metadata(&settings_path).map_err(|_| failure())?;
                 if !metadata.is_file() || metadata.file_type().is_symlink() {
-                    return Err(ERROR.into());
+                    return Err(failure().into());
                 }
             }
-            Err(_) => return Err(ERROR.into()),
+            Err(_) => return Err(failure().into()),
         }
         let lock_path = directory.join("lmm-adapter.lock");
         if fs::symlink_metadata(&lock_path)
             .is_ok_and(|m| !m.is_file() || m.file_type().is_symlink())
         {
-            return Err(ERROR.into());
+            return Err(failure().into());
         }
         let mut options = OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
@@ -261,8 +264,8 @@ impl Target<'_> {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let lock = options.open(lock_path).map_err(|_| ERROR)?;
-        lock.try_lock_exclusive().map_err(|_| ERROR)?;
+        let lock = options.open(lock_path).map_err(|_| failure())?;
+        lock.try_lock_exclusive().map_err(|_| failure())?;
         let receipt = self.receipt()?;
         match action {
             "setup" | "install" | "update" => {
@@ -270,19 +273,19 @@ impl Target<'_> {
                     .as_ref()
                     .is_some_and(|r| r.phase != "installed" && r.phase != "restored")
                 {
-                    return Err(ERROR.into());
+                    return Err(failure().into());
                 }
                 let current = self.native("inspect")?;
                 if current["conflicting"] != false
                     || (current["configured"] == true && current["installed"] != true)
                 {
-                    return Err(ERROR.into());
+                    return Err(failure().into());
                 }
                 if action == "update"
                     && (receipt.as_ref().is_none_or(|r| r.phase != "installed")
                         || current["installed"] != true)
                 {
-                    return Err(ERROR.into());
+                    return Err(failure().into());
                 }
                 if current["installed"] == true {
                     result.state = "already_present";
@@ -291,10 +294,10 @@ impl Target<'_> {
                 self.save("pending_add")?;
                 let added = self.native("add")?;
                 if added["added"] != true {
-                    return Err(ERROR.into());
+                    return Err(failure().into());
                 }
                 if self.native("inspect")?["installed"] != true {
-                    return Err(ERROR.into());
+                    return Err(failure().into());
                 }
                 self.save("installed")?;
                 result.state = "provider_added_authorization_pending";
@@ -306,23 +309,23 @@ impl Target<'_> {
                         result.state = "already_restored";
                         return Ok(result);
                     }
-                    _ => return Err(ERROR.into()),
+                    _ => return Err(failure().into()),
                 }
                 self.save("pending_remove")?;
                 self.native("remove")?;
                 if self.native("inspect")?["configured"] != false {
-                    return Err(ERROR.into());
+                    return Err(failure().into());
                 }
                 self.save("restored")?;
                 result.state = "provider_detached_credentials_unchanged";
             }
             "sync" => {
                 if self.native("inspect")?["installed"] != true {
-                    return Err(ERROR.into());
+                    return Err(failure().into());
                 }
                 result.state = "provider_present_catalog_refresh_pending";
             }
-            _ => return Err(ERROR.into()),
+            _ => return Err(failure().into()),
         }
         Ok(result)
     }

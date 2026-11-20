@@ -20,29 +20,29 @@ const RECOVERY_SECONDS: u64 = 600;
 
 #[derive(Debug, thiserror::Error, Eq, PartialEq)]
 pub enum ApplicationError {
-    #[error("应用实例、issuer 或授权格式无效")]
+    #[error("{}", crate::i18n::english("application.invalid"))]
     Invalid,
-    #[error("服务端尚未启用具有可恢复续期能力的 CC Switch 独立授权")]
+    #[error("{}", crate::i18n::english("application.unavailable"))]
     Unavailable,
-    #[error("应用授权未完成、已失效或不包含所需权限")]
+    #[error("{}", crate::i18n::english("application.unauthorized"))]
     Unauthorized,
-    #[error("该实例已有独立授权；必须先明确解除旧授权才能更换")]
+    #[error("{}", crate::i18n::english("application.existing"))]
     AlreadyAuthorized,
-    #[error("系统凭据库不可用；不会把 OAuth 凭据存入普通文件")]
+    #[error("{}", crate::i18n::english("application.vault"))]
     CredentialStore,
-    #[error("应用授权请求未获得可靠响应；尚未确认操作完成")]
+    #[error("{}", crate::i18n::english("application.network"))]
     Network,
-    #[error("原续期操作超过恢复窗口；请撤销旧授权后重新征得同意")]
+    #[error("{}", crate::i18n::english("application.expired"))]
     RecoveryExpired,
-    #[error("另一项本机授权操作正在运行")]
+    #[error("{}", crate::i18n::english("application.busy"))]
     Busy,
-    #[error("浏览器授权未完成；未配置目标软件")]
+    #[error("{}", crate::i18n::english("application.browser"))]
     Browser,
-    #[error("新应用授权未能保存，且撤销结果未知；请在 LMM 授权页撤销此 CC Switch 实例")]
+    #[error("{}", crate::i18n::english("application.unstored"))]
     UnstoredGrant,
-    #[error("应用授权码交换结果未知；未配置软件，请在 LMM 授权页检查此 CC Switch 实例")]
+    #[error("{}", crate::i18n::english("application.unknown"))]
     AuthorizationUnknown,
-    #[error("无法向 Codex 凭据管道写入结果")]
+    #[error("{}", crate::i18n::english("application.output"))]
     CredentialOutput,
 }
 impl From<AuthError> for ApplicationError {

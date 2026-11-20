@@ -24,39 +24,39 @@ const MAX_EVENTS: usize = 128;
 /// Typed refusal or incomplete operation. No response includes secret content.
 #[derive(Debug, thiserror::Error)]
 pub enum ManagedError {
-    #[error("此受管安装适配器仅支持 Linux x86_64 和 aarch64")]
+    #[error("{}", crate::i18n::english("managed.platform"))]
     UnsupportedPlatform,
-    #[error("受管目录必须是绝对、私有且不经过符号链接的路径")]
+    #[error("{}", crate::i18n::english("managed.path"))]
     UnsafePath,
-    #[error("该目录不是 LMM 创建的受管安装，不能接管或删除")]
+    #[error("{}", crate::i18n::english("managed.ownership"))]
     NotOwned,
-    #[error("受管安装日志损坏或版本未知，未执行变更")]
+    #[error("{}", crate::i18n::english("managed.state"))]
     InvalidState,
-    #[error("另一个 LMM 操作正在处理此安装，请稍后重试原计划")]
+    #[error("{}", crate::i18n::english("managed.busy"))]
     Busy,
-    #[error("安装状态已在预览之后改变，请重新查看计划")]
+    #[error("{}", crate::i18n::english("managed.conflict"))]
     Conflict,
-    #[error("受管程序被后续修改，已保留文件；不能覆盖、执行或删除")]
+    #[error("{}", crate::i18n::english("managed.modified"))]
     ModifiedArtifact,
-    #[error("尚无受管安装；不能把 PATH 中的程序当作 LMM 安装")]
+    #[error("{}", crate::i18n::english("managed.missing"))]
     NotInstalled,
-    #[error("找不到该变更回执，或后续变更与恢复目标冲突")]
+    #[error("{}", crate::i18n::english("managed.change"))]
     UnknownChange,
-    #[error("存在未完成操作；请使用原计划 ID 恢复同一操作")]
+    #[error("{}", crate::i18n::english("managed.pending"))]
     Pending,
-    #[error("此更新会降低版本，请使用明确变更回执的恢复流程")]
+    #[error("{}", crate::i18n::english("managed.downgrade"))]
     Downgrade,
-    #[error("本机数据库版本不适合目标程序；没有覆盖或回退用户数据")]
+    #[error("{}", crate::i18n::english("managed.database"))]
     DatabaseCompatibility,
-    #[error("下载失败；变更尚未提交，使用原计划 ID 可继续或取消")]
+    #[error("{}", crate::i18n::english("managed.download"))]
     Download,
-    #[error("下载长度或 SHA-256 不符合固定官方发布记录")]
+    #[error("{}", crate::i18n::english("managed.integrity"))]
     Integrity,
-    #[error("无法持久保存或读取安装日志；请查看状态并用原计划 ID 查回执")]
+    #[error("{}", crate::i18n::english("managed.storage"))]
     Storage,
-    #[error("无法启动已校验程序；请确认图形会话、FUSE 和运行依赖")]
+    #[error("{}", crate::i18n::english("managed.launch"))]
     Launch,
-    #[error("操作已移除部分受管文件，必须用原计划完成，不能宣称已取消")]
+    #[error("{}", crate::i18n::english("managed.cancel"))]
     CannotCancel,
 }
 

@@ -3,6 +3,7 @@
 //! Arrays and secrets require adapter-specific ownership; broad object replacement
 //! is deliberately rejected. A restore never renews any authorization.
 
+use crate::i18n::msg;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -21,16 +22,16 @@ pub struct FieldChange {
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum RestoreError {
     /// A newer user or manager edit takes precedence over the backup.
-    #[error("字段在 LMM 修改后再次变化，恢复已暂停")]
+    #[error("{}", msg("restore.conflict"))]
     Conflict,
     /// Object/array replacement would have an overly broad scope.
-    #[error("仅支持对象中的单个标量字段；集合需要专用适配器")]
+    #[error("{}", msg("restore.unsupported_shape"))]
     UnsupportedShape,
     /// Invalid JSON pointer or missing parent.
-    #[error("无法定位恢复字段的父对象")]
+    #[error("{}", msg("restore.invalid_pointer"))]
     InvalidPointer,
     /// A malformed or overlapping journal must not reorder writes.
-    #[error("变更记录包含重复字段")]
+    #[error("{}", msg("restore.duplicate_field"))]
     DuplicateField,
 }
 
