@@ -2763,8 +2763,7 @@ dependencies = [
 [[package]]
 name = "zhex"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d14ad9f2b67116dddbb199885e512dba8ad5e6c4d1da75b3a9f333811adb99ee"
+source = "git+https://github.com/LIghtJUNction/zhex.git#09dfaa0adee628d0714e2f9e96921555e619b2f6"
 
 [[package]]
 name = "zmij"
