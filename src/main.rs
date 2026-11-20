@@ -13,8 +13,7 @@ use lmm::{
 };
 use serde::Serialize;
 use std::{
-    env,
-    fmt,
+    env, fmt,
     io::{self, IsTerminal, Write},
     path::{Path, PathBuf},
     process::ExitCode,
@@ -397,10 +396,7 @@ fn readonly_report(
         &target.pi.pi_package,
         &target.pi.agent_dir,
     ) else {
-        return Err(
-            english("error.pi_read_paths")
-                .into(),
-        );
+        return Err(english("error.pi_read_paths").into());
     };
     if ![project, sdk, agent].iter().all(|path| path.is_absolute())
         || target
@@ -570,11 +566,8 @@ fn managed_output(value: &impl Serialize, json: bool) -> Result<(), CliError> {
     // Plans contain source, digest, exact scope and receipt IDs. The same
     // structured preview is available in terminals and unattended workflows.
     if !json {
-        writeln!(
-            io::stdout().lock(),
-            "{}", msg("output.managed_heading")
-        )
-        .map_err(|_| english("error.plan_output"))?;
+        writeln!(io::stdout().lock(), "{}", msg("output.managed_heading"))
+            .map_err(|_| english("error.plan_output"))?;
     }
     write_json(value)
 }
@@ -593,9 +586,7 @@ fn managed_operation(
         return Err(english("error.change_restore_only").into());
     }
     if action == ManagedAction::Restore && args.change.is_none() {
-        return Err(
-            english("error.restore_change").into(),
-        );
+        return Err(english("error.restore_change").into());
     }
     let manager = managed_manager(&args.target)?;
     if !args.dry_run
@@ -674,8 +665,12 @@ fn managed_operation(
     if !interactive || args.yes {
         return Ok(3);
     }
-    write!(io::stderr().lock(), "{}", msg("select.managed_confirm")).map_err(|_| english("error.confirm_output"))?;
-    io::stderr().lock().flush().map_err(|_| english("error.confirm_output"))?;
+    write!(io::stderr().lock(), "{}", msg("select.managed_confirm"))
+        .map_err(|_| english("error.confirm_output"))?;
+    io::stderr()
+        .lock()
+        .flush()
+        .map_err(|_| english("error.confirm_output"))?;
     let mut answer = String::new();
     io::stdin()
         .read_line(&mut answer)
@@ -706,9 +701,11 @@ fn enrich_cc_switch(report: &mut Report, target: &TargetArgs) {
         return;
     }
     report.check_scope = "managed_distribution_and_explicit_native_database";
-    match managed_manager(target)
-        .and_then(|manager| manager.status().map_err(|error| CliError::from(error.to_string())))
-    {
+    match managed_manager(target).and_then(|manager| {
+        manager
+            .status()
+            .map_err(|error| CliError::from(error.to_string()))
+    }) {
         Ok(status) => {
             if let Some(row) = report
                 .targets
@@ -725,7 +722,10 @@ fn enrich_cc_switch(report: &mut Report, target: &TargetArgs) {
             report.managed_installation = Some(status);
         }
         Err(error) => {
-            report.adapter_error = Some(match error { CliError::Message(message) => english(message.key()).to_owned(), CliError::Adapter(value) => value });
+            report.adapter_error = Some(match error {
+                CliError::Message(message) => english(message.key()).to_owned(),
+                CliError::Adapter(value) => value,
+            });
             report.outcome = "incomplete";
         }
     }
@@ -795,9 +795,12 @@ fn emit(report: &Report, json: bool) -> Result<(), CliError> {
                 output,
                 "{}",
                 msg("output.pi_settings").render(&[
-                    ("added", target.lmm_added), ("enabled", target.lmm_enabled),
-                    ("model", settings.default_model), ("scope", settings.model_scope),
-                    ("configuration", settings.configuration), ("diagnostic", settings.diagnostic),
+                    ("added", target.lmm_added),
+                    ("enabled", target.lmm_enabled),
+                    ("model", settings.default_model),
+                    ("scope", settings.model_scope),
+                    ("configuration", settings.configuration),
+                    ("diagnostic", settings.diagnostic),
                 ])
             )
             .map_err(|_| english("error.output"))?;
@@ -851,8 +854,12 @@ fn emit(report: &Report, json: bool) -> Result<(), CliError> {
         .map_err(|_| english("error.database_output"))?;
     }
     if let Some(error) = &report.adapter_error {
-        writeln!(output, "{}", msg("output.adapter").render(&[("error", localize(error))]))
-            .map_err(|_| english("error.adapter_output"))?;
+        writeln!(
+            output,
+            "{}",
+            msg("output.adapter").render(&[("error", localize(error))])
+        )
+        .map_err(|_| english("error.adapter_output"))?;
     }
     Ok(())
 }
@@ -861,7 +868,8 @@ fn pi_failure(action: &str, error: &str, json: bool) -> Result<Option<u8>, CliEr
     if json {
         write_json(&serde_json::json!({"action":action,"outcome":"incomplete","error":error}))?;
     } else {
-        writeln!(io::stderr().lock(), "{}", localize(error)).map_err(|_| english("error.pi_output"))?;
+        writeln!(io::stderr().lock(), "{}", localize(error))
+            .map_err(|_| english("error.pi_output"))?;
     }
     Ok(Some(3))
 }
@@ -895,9 +903,7 @@ fn validate_operation_arguments(name: &str, args: &OperationArgs) -> Result<(), 
             || args.change.is_some()
             || args.cancel_pending)
     {
-        return Err(
-            english("error.managed_arguments").into(),
-        );
+        return Err(english("error.managed_arguments").into());
     }
     Ok(())
 }
@@ -1006,10 +1012,7 @@ fn execute_pi(cli: &Cli) -> Result<Option<u8>, CliError> {
             || target.pi.pi_package.is_some()
             || target.pi.agent_dir.is_some()
         {
-            return Err(
-                english("error.pi_adapter_paths")
-                    .into(),
-            );
+            return Err(english("error.pi_adapter_paths").into());
         }
         return Ok(None);
     };
@@ -1062,10 +1065,7 @@ fn execute(cli: &Cli) -> Result<u8, CliError> {
         _ => false,
     };
     if cli.non_interactive && application_vault {
-        return Err(
-            english("error.application_unattended")
-                .into(),
-        );
+        return Err(english("error.application_unattended").into());
     }
     if cli.non_interactive
         && matches!(
@@ -1161,17 +1161,22 @@ fn execute(cli: &Cli) -> Result<u8, CliError> {
         Command::Authorize(args) => {
             return applications_cli::authorize(args, interactive, cli.json).map_err(Into::into);
         }
-        Command::Receipt(args) => return applications_cli::receipt(args, interactive, cli.json).map_err(Into::into),
-        Command::Credential(args) => return applications_cli::credential(args, cli.json).map_err(Into::into),
+        Command::Receipt(args) => {
+            return applications_cli::receipt(args, interactive, cli.json).map_err(Into::into);
+        }
+        Command::Credential(args) => {
+            return applications_cli::credential(args, cli.json).map_err(Into::into);
+        }
         Command::Setup(args) => {
             if args.operation.target.software.as_deref() == Some("cc-switch") {
                 return applications_cli::operation(
                     "setup",
                     &args.operation,
-                    Some(args).map_err(Into::into),
+                    Some(args),
                     interactive,
                     cli.json,
-                );
+                )
+                .map_err(Into::into);
             }
             operation_report(
                 "setup",
@@ -1201,7 +1206,8 @@ fn execute(cli: &Cli) -> Result<u8, CliError> {
         }
         Command::Sync(args) => {
             if args.target.software.as_deref() == Some("cc-switch") {
-                return applications_cli::operation("sync", args, None, interactive, cli.json).map_err(Into::into);
+                return applications_cli::operation("sync", args, None, interactive, cli.json)
+                    .map_err(Into::into);
             }
             operation_report("sync", args, Intent::Maintain, interactive, &context)?
         }
@@ -1219,7 +1225,8 @@ fn execute(cli: &Cli) -> Result<u8, CliError> {
         }
         Command::Restore(args) => {
             if args.target.software.as_deref() == Some("cc-switch") && args.configuration {
-                return applications_cli::operation("restore", args, None, interactive, cli.json).map_err(Into::into);
+                return applications_cli::operation("restore", args, None, interactive, cli.json)
+                    .map_err(Into::into);
             }
             if args.target.software.as_deref() == Some("cc-switch") {
                 return managed_operation(
@@ -1343,13 +1350,18 @@ fn execute(cli: &Cli) -> Result<u8, CliError> {
                                 ])
                             )
                             .map_err(|_| msg("error.models_output"))?;
-                            writeln!(output, "{}", msg("output.model_metadata").render(&[
-                                ("metadata", &format!("{:?}", model.metadata)),
-                                ("cache_read", &format!("{:?}", model.pricing.cache_read)),
-                                ("cache_write", &format!("{:?}", model.pricing.cache_write)),
-                                ("group", &format!("{:?}", model.pricing.group_multiplier)),
-                                ("trust", &format!("{:?}", model.pricing.trust_multiplier)),
-                            ])).map_err(|_| english("error.models_output"))?;
+                            writeln!(
+                                output,
+                                "{}",
+                                msg("output.model_metadata").render(&[
+                                    ("metadata", &format!("{:?}", model.metadata)),
+                                    ("cache_read", &format!("{:?}", model.pricing.cache_read)),
+                                    ("cache_write", &format!("{:?}", model.pricing.cache_write)),
+                                    ("group", &format!("{:?}", model.pricing.group_multiplier)),
+                                    ("trust", &format!("{:?}", model.pricing.trust_multiplier)),
+                                ])
+                            )
+                            .map_err(|_| english("error.models_output"))?;
                         }
                     }
                     Ok(0)
@@ -1359,7 +1371,8 @@ fn execute(cli: &Cli) -> Result<u8, CliError> {
         }
         Command::Disconnect(args) | Command::Run(args) => {
             if matches!(&cli.command, Command::Disconnect(_)) && args.software == "cc-switch" {
-                return applications_cli::disconnect(args, interactive, cli.json).map_err(Into::into);
+                return applications_cli::disconnect(args, interactive, cli.json)
+                    .map_err(Into::into);
             }
             if args.application.supplied() {
                 return Err(english("error.application_flags_unsupported").into());
@@ -1380,10 +1393,7 @@ fn execute(cli: &Cli) -> Result<u8, CliError> {
             };
             if name == "run" && args.software == "cc-switch" {
                 if args.instance.is_some() {
-                    return Err(
-                        english("error.cc_switch_launch_instance")
-                            .into(),
-                    );
+                    return Err(english("error.cc_switch_launch_instance").into());
                 }
                 let manager = managed_manager(&target)?;
                 return match manager.launch() {

@@ -123,13 +123,17 @@ pub fn english(key: &'static str) -> &'static str {
 /// Recover a message at the presentation boundary of an existing String API.
 /// Only exact catalog values are recognized; external text is never a template.
 pub fn message_from_english(value: &str) -> Option<Message> {
-    Locale::En.catalog().iter().find_map(|(key, candidate)| {
-        (candidate == value).then_some(Message(key.as_str()))
-    })
+    Locale::En
+        .catalog()
+        .iter()
+        .find_map(|(key, candidate)| (candidate == value).then_some(Message(key.as_str())))
 }
 
 pub fn localize(value: &str) -> &str {
-    message_from_english(value).map_or(value, Message::text)
+    match message_from_english(value) {
+        Some(message) => message.text(),
+        None => value,
+    }
 }
 
 impl Message {
@@ -237,7 +241,10 @@ mod tests {
     fn canonical_adapter_errors_recover_only_exact_catalog_messages() {
         let message = message_from_english(english("managed.conflict")).unwrap();
         assert_eq!(message.key(), "managed.conflict");
-        assert_eq!(serde_json::to_value(message).unwrap(), english("managed.conflict"));
+        assert_eq!(
+            serde_json::to_value(message).unwrap(),
+            english("managed.conflict")
+        );
         assert!(message_from_english("untrusted {software} {source}").is_none());
         assert_eq!(localize("untrusted {software}"), "untrusted {software}");
     }

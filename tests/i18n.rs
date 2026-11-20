@@ -289,9 +289,21 @@ fn search_matches_translated_descriptions_without_changing_identifiers() {
 #[test]
 fn native_adapter_errors_translate_without_accessing_credentials() {
     for (arguments, english, chinese) in [
-        (vec!["setup", "pi", "--activate"], "Pi activation requires", "Pi 激活需要"),
-        (vec!["authorize", "cc-switch", "--non-interactive"], "system vault", "系统凭据库"),
-        (vec!["setup", "astrbot", "--installation-id", "unused-instance"], "only to CC Switch", "只适用于 CC Switch"),
+        (
+            vec!["setup", "pi", "--activate"],
+            "Pi activation requires",
+            "Pi 激活需要",
+        ),
+        (
+            vec!["authorize", "cc-switch", "--non-interactive"],
+            "system vault",
+            "系统凭据库",
+        ),
+        (
+            vec!["setup", "astrbot", "--installation-id", "unused-instance"],
+            "only to CC Switch",
+            "只适用于 CC Switch",
+        ),
     ] {
         for (locale, expected) in [("en", english), ("zh-CN", chinese)] {
             let mut args = vec!["--lang", locale];
@@ -299,7 +311,11 @@ fn native_adapter_errors_translate_without_accessing_credentials() {
             let output = run(&args, &[]);
             assert_eq!(output.status.code(), Some(2), "{args:?}");
             assert!(output.stdout.is_empty());
-            assert!(String::from_utf8_lossy(&output.stderr).contains(expected), "{args:?}: {:?}", output.stderr);
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(expected),
+                "{args:?}: {:?}",
+                output.stderr
+            );
         }
     }
 }
@@ -307,11 +323,22 @@ fn native_adapter_errors_translate_without_accessing_credentials() {
 #[test]
 fn credential_command_keeps_its_no_json_contract_in_both_languages() {
     for locale in ["en", "zh-CN"] {
-        let output = run(&[
-            "--lang", locale, "--json", "credential", "cc-switch",
-            "--issuer", "https://example.invalid", "--installation-id", "unused-instance",
-            "--grant-id", "unused-grant",
-        ], &[]);
+        let output = run(
+            &[
+                "--lang",
+                locale,
+                "--json",
+                "credential",
+                "cc-switch",
+                "--issuer",
+                "https://example.invalid",
+                "--installation-id",
+                "unused-instance",
+                "--grant-id",
+                "unused-grant",
+            ],
+            &[],
+        );
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
         assert!(String::from_utf8_lossy(&output.stderr).contains("credential"));

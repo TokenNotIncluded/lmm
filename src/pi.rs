@@ -2,8 +2,8 @@
 //! OAuth stays in Pi; this adapter never reads, copies or grants credentials.
 pub mod status;
 
-use fs2::FileExt;
 use crate::i18n::english;
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File, OpenOptions},
@@ -15,7 +15,9 @@ use std::{
 pub const SOURCE: &str =
     "git:github.com/TokenNotIncluded/pi-lmm-provider@f0c54764eb3d73e50790346f0dbab834587fe27b";
 const BRIDGE: &str = include_str!("pi-bridge.mjs");
-fn failure() -> &'static str { english("pi.incomplete") }
+fn failure() -> &'static str {
+    english("pi.incomplete")
+}
 
 #[derive(Debug)]
 pub struct Target<'a> {
@@ -67,9 +69,10 @@ impl Target<'_> {
         {
             return Err(failure().into());
         }
-        let manifest: serde_json::Value =
-            serde_json::from_slice(&fs::read(self.sdk.join("package.json")).map_err(|_| failure())?)
-                .map_err(|_| failure())?;
+        let manifest: serde_json::Value = serde_json::from_slice(
+            &fs::read(self.sdk.join("package.json")).map_err(|_| failure())?,
+        )
+        .map_err(|_| failure())?;
         if manifest["name"] != "@earendil-works/pi-coding-agent" || manifest["version"] != "1.2.0" {
             return Err(failure().into());
         }
@@ -130,8 +133,8 @@ impl Target<'_> {
             Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() && meta.len() <= 4096 => {}
             _ => return Err(failure().into()),
         }
-        let receipt: Receipt =
-            serde_json::from_slice(&fs::read(path).map_err(|_| failure())?).map_err(|_| failure())?;
+        let receipt: Receipt = serde_json::from_slice(&fs::read(path).map_err(|_| failure())?)
+            .map_err(|_| failure())?;
         if receipt.version != 1 || receipt.source != SOURCE {
             return Err(failure().into());
         }

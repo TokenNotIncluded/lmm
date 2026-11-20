@@ -69,13 +69,13 @@ pub(super) struct ReceiptArgs {
 
 fn output(value: &impl Serialize, json: bool) -> Result<(), String> {
     if !json {
-        writeln!(
-            io::stdout().lock(),
-            "{}", msg("output.application_heading")
-        )
-        .map_err(|_| english("error.output"))?;
+        writeln!(io::stdout().lock(), "{}", msg("output.application_heading"))
+            .map_err(|_| english("error.output"))?;
     }
-    super::write_json(value).map_err(|error| match error { super::CliError::Message(message) => lmm::i18n::english(message.key()).to_owned(), super::CliError::Adapter(value) => value })
+    super::write_json(value).map_err(|error| match error {
+        super::CliError::Message(message) => lmm::i18n::english(message.key()).to_owned(),
+        super::CliError::Adapter(value) => value,
+    })
 }
 fn instance(issuer: &str, id: &str, label: &str) -> Result<ApplicationInstance, String> {
     ApplicationInstance::new(issuer, id, label).map_err(|error| error.to_string())
@@ -206,9 +206,7 @@ fn selection(
         0
     } else {
         if !interactive {
-            return Err(
-                english("error.application_multiple").into(),
-            );
+            return Err(english("error.application_multiple").into());
         }
         let mut stderr = io::stderr().lock();
         for (index, entry) in matches.iter().enumerate() {
@@ -229,9 +227,16 @@ fn selection(
     instance(&chosen.issuer, &chosen.installation_id, "CC Switch").map(Some)
 }
 fn choose(count: usize, label: &str) -> Result<usize, String> {
-    write!(io::stderr().lock(), "{}", msg("select.application_prompt").render(&[("label", label)]))
+    write!(
+        io::stderr().lock(),
+        "{}",
+        msg("select.application_prompt").render(&[("label", label)])
+    )
+    .map_err(|_| english("error.selection_output"))?;
+    io::stderr()
+        .lock()
+        .flush()
         .map_err(|_| english("error.selection_output"))?;
-    io::stderr().lock().flush().map_err(|_| english("error.selection_output"))?;
     let mut line = String::new();
     io::stdin()
         .read_line(&mut line)
@@ -289,9 +294,11 @@ fn choose_model(
         .map_err(|_| english("error.model_selection_output"))?;
     }
     drop(stderr);
-    Ok(models[choose(models.len(), text("select.application_model"))?]
-        .id
-        .clone())
+    Ok(
+        models[choose(models.len(), text("select.application_model"))?]
+            .id
+            .clone(),
+    )
 }
 fn confirmed(
     args: &super::OperationArgs,
@@ -303,10 +310,7 @@ fn confirmed(
         return if args.plan_id.as_deref() == Some(&planned.plan_id) {
             Ok(true)
         } else {
-            Err(
-                english("error.binding_plan_changed")
-                    .into(),
-            )
+            Err(english("error.binding_plan_changed").into())
         };
     }
     output(
@@ -317,8 +321,12 @@ fn confirmed(
     if args.dry_run || !interactive {
         return Ok(false);
     }
-    write!(io::stderr().lock(), "{}", msg("select.binding_confirm")).map_err(|_| english("error.confirm_output"))?;
-    io::stderr().lock().flush().map_err(|_| english("error.confirm_output"))?;
+    write!(io::stderr().lock(), "{}", msg("select.binding_confirm"))
+        .map_err(|_| english("error.confirm_output"))?;
+    io::stderr()
+        .lock()
+        .flush()
+        .map_err(|_| english("error.confirm_output"))?;
     let mut answer = String::new();
     io::stdin()
         .read_line(&mut answer)
@@ -339,10 +347,7 @@ pub(super) fn operation(
         return Err(english("error.binding_scope").into());
     }
     if setup.is_some_and(|setup| !setup.add_only || setup.activate) {
-        return Err(
-            english("error.binding_activation")
-                .into(),
-        );
+        return Err(english("error.binding_activation").into());
     }
     let path = database(&args.target)?;
     let existing = selection(&path, &args.application, interactive)?;
@@ -351,10 +356,7 @@ pub(super) fn operation(
         None => {
             let setup = setup.ok_or(english("error.binding_setup_first"))?;
             if !interactive || args.dry_run || args.yes {
-                return Err(
-                    english("error.application_authorize_first")
-                        .into(),
-                );
+                return Err(english("error.application_authorize_first").into());
             }
             let application = instance(
                 args.application
@@ -404,7 +406,8 @@ pub(super) fn operation(
         } else {
             let setup = setup.ok_or(english("error.binding_not_added"))?;
             let model = choose_model(&current, setup.model_id.as_deref(), interactive)?;
-            let helper = std::env::current_exe().map_err(|_| english("error.credential_executable"))?;
+            let helper =
+                std::env::current_exe().map_err(|_| english("error.credential_executable"))?;
             cc_switch::bindings::preview_add(&path, &current, &model, &setup.display_name, &helper)
         };
         proof = Some(current);
@@ -438,7 +441,8 @@ pub(super) fn operation(
 }
 pub(super) fn receipt(args: &ReceiptArgs, interactive: bool, json: bool) -> Result<u8, String> {
     let path = args.instance.join("cc-switch.db");
-    let application = selection(&path, &args.scope, interactive)?.ok_or(english("error.binding_missing_record"))?;
+    let application = selection(&path, &args.scope, interactive)?
+        .ok_or(english("error.binding_missing_record"))?;
     let receipt = cc_switch::bindings::receipt(
         &path,
         application.issuer(),

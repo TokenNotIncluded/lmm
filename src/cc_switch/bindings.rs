@@ -59,9 +59,7 @@ pub enum BindingError {
     SelectedModelUnavailable,
     #[error("{}", crate::i18n::english("binding.receipt"))]
     NotFound,
-    #[error(
-        "{}", crate::i18n::english("binding.delete")
-    )]
+    #[error("{}", crate::i18n::english("binding.delete"))]
     NativeRemoval,
     #[error("{}", crate::i18n::english("binding.confirm"))]
     Confirmation,
