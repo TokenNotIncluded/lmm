@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HAN = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f]")
 PLACEHOLDER = re.compile(r"\{([a-zA-Z][a-zA-Z0-9_-]*)\}")
-CALL_KEY = re.compile(r'(?<![\w.])(?:msg|text)\("([^"\n]+)"\)')
+CALL_KEY = re.compile(r'(?<![\w.])(?:msg|text|english)\("([^"\n]+)"\)')
 MATCH_KEY = re.compile(r'Self::\w+\s*=>\s*"([a-z]+\.[a-z_]+)"')
 
 

@@ -2,7 +2,6 @@ use super::{AuthError, protocol::Credential};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
-    env,
     fs::{self, File, OpenOptions},
     path::PathBuf,
 };
@@ -28,6 +27,7 @@ pub(super) struct SystemStore {
 impl SystemStore {
     pub fn new(issuer: &str) -> Result<Self, AuthError> {
         Ok(Self {
+            // v4's native v1 store must keep the existing service/user lookup pair.
             entry: keyring::Entry::new("best.lmm.cli.oauth", issuer)
                 .map_err(|_| AuthError::CredentialStore)?,
             issuer: issuer.to_owned(),
@@ -73,18 +73,8 @@ impl SecretStore for SystemStore {
 }
 
 fn lock_directory() -> Result<PathBuf, AuthError> {
-    let base = if cfg!(windows) {
-        env::var_os("LOCALAPPDATA").map(PathBuf::from)
-    } else if cfg!(target_os = "macos") {
-        crate::environment::user_home().map(|home| home.join("Library/Application Support"))
-    } else {
-        env::var_os("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .or_else(|| crate::environment::user_home().map(|home| home.join(".local/state")))
-    }
-    .filter(|path| path.is_absolute())
-    .ok_or(AuthError::Busy)?;
-    Ok(base.join("lmm"))
+    crate::environment::user_directory(crate::environment::UserDirectory::State)
+        .ok_or(AuthError::Busy)
 }
 
 /// The lock stores no secrets; OS process exit releases it even after cancellation.
@@ -124,6 +114,19 @@ fn lock_at(directory: &std::path::Path) -> Result<File, AuthError> {
         options.mode(0o600);
     }
     let file = options.open(path).map_err(|_| AuthError::Busy)?;
+    // The creation mode does not fix an existing unsafe lock file.
+    // Verify the opened file rather than changing its permissions.
+    let metadata = file.metadata().map_err(|_| AuthError::Busy)?;
+    if !metadata.is_file() {
+        return Err(AuthError::Busy);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(AuthError::Busy);
+        }
+    }
     file.try_lock_exclusive().map_err(|_| AuthError::Busy)?;
     Ok(file)
 }
@@ -132,6 +135,50 @@ fn lock_at(directory: &std::path::Path) -> Result<File, AuthError> {
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    fn isolated_native_store() -> SystemStore {
+        use std::env;
+        // This opt-in test must never connect to the user's normal Secret Service.
+        let root = PathBuf::from(env::var_os("LMM_TEST_KEYRING_ROOT").unwrap());
+        assert!(root.is_absolute() && root.join("owned-keyring-fixture").is_file());
+        for variable in [
+            "HOME",
+            "XDG_DATA_HOME",
+            "XDG_CONFIG_HOME",
+            "XDG_RUNTIME_DIR",
+        ] {
+            let path = PathBuf::from(env::var_os(variable).unwrap());
+            assert!(path.starts_with(&root));
+        }
+        let bus = env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+        assert!(bus.starts_with(&format!("unix:path={}/", root.display())));
+        SystemStore::new("https://legacy-keyring.synthetic.invalid").unwrap()
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires an explicitly isolated Secret Service seeded by keyring 3.6.3"]
+    fn native_store_reads_and_updates_legacy_credential() {
+        let store = isolated_native_store();
+        let mut session = store.load().unwrap().unwrap();
+        assert!(!session.refresh_blocked);
+        assert!(session.credential.scope == "catalog:read balance:read group:ZGVmYXVsdA");
+        session.refresh_blocked = true;
+        store.save(&session).unwrap();
+        assert!(store.load().unwrap().unwrap().refresh_blocked);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires an explicitly isolated Secret Service after the migration readback"]
+    fn native_store_deletes_migrated_credential() {
+        let store = isolated_native_store();
+        assert!(store.load().unwrap().is_some());
+        store.delete().unwrap();
+        assert!(store.load().unwrap().is_none());
+        store.delete().unwrap();
+    }
 
     #[test]
     fn lock_serializes_processes_and_releases_after_drop() {
@@ -155,5 +202,41 @@ mod tests {
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         symlink(root.path().join("elsewhere"), path.join("oauth.lock")).unwrap();
         assert!(matches!(lock_at(&path), Err(AuthError::Busy)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_refuses_existing_shared_file_without_repairing_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("state");
+        let initial = lock_at(&directory).unwrap();
+        drop(initial);
+        let path = directory.join("oauth.lock");
+        fs::write(&path, b"synthetic lock marker").unwrap();
+        for mode in [0o640, 0o644, 0o660, 0o666] {
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+            assert!(matches!(lock_at(&directory), Err(AuthError::Busy)));
+            assert_eq!(fs::read(&path).unwrap(), b"synthetic lock marker");
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                mode
+            );
+        }
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(lock_at(&directory).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_creates_private_directory_and_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("state");
+        let file = lock_at(&directory).unwrap();
+        let directory_mode = fs::metadata(&directory).unwrap().permissions().mode();
+        let file_mode = file.metadata().unwrap().permissions().mode();
+        assert_eq!(directory_mode & 0o077, 0);
+        assert_eq!(file_mode & 0o077, 0);
     }
 }

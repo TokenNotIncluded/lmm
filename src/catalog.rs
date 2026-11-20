@@ -9,8 +9,17 @@ use serde::Serialize;
 pub enum Capability {
     /// This release can inspect local evidence without modifying the target.
     InspectOnly,
+    /// Pinned Linux distribution lifecycle in LMM's own directory; this does
+    /// not imply qualified provider integration or real application calls.
+    ManagedDistribution,
     /// No implementation has been qualified for this action.
     Unavailable,
+}
+
+const fn managed_distribution(mut software: Software) -> Software {
+    software.installation = Capability::ManagedDistribution;
+    software.maintenance = Capability::ManagedDistribution;
+    software
 }
 
 /// An individual software distribution; desktop and CLI identities stay separate.
@@ -65,13 +74,13 @@ pub static SOFTWARE: &[Software] = &[
         msg("purpose.astrbot"),
         &["astrbot"],
     ),
-    software(
+    managed_distribution(software(
         "cc-switch",
         "CC Switch",
         "https://github.com/farion1231/cc-switch",
         msg("purpose.cc_switch"),
         &["cc-switch"],
-    ),
+    )),
     software(
         "claude-code",
         "Claude Code CLI",

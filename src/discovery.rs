@@ -216,5 +216,5 @@ pub fn fingerprint(path: &Path) -> io::Result<String> {
             msg("error.config_size"),
         ));
     }
-    Ok(format!("{:x}", Sha256::digest(data)))
+    crate::hex::digest(Sha256::digest(data))
 }

@@ -115,6 +115,23 @@ pub fn text(key: &'static str) -> &'static str {
     msg(key).text()
 }
 
+/// Canonical prose for machine-readable adapter results and legacy error APIs.
+pub fn english(key: &'static str) -> &'static str {
+    Locale::En.text(key)
+}
+
+/// Recover a message at the presentation boundary of an existing String API.
+/// Only exact catalog values are recognized; external text is never a template.
+pub fn message_from_english(value: &str) -> Option<Message> {
+    Locale::En.catalog().iter().find_map(|(key, candidate)| {
+        (candidate == value).then_some(Message(key.as_str()))
+    })
+}
+
+pub fn localize(value: &str) -> &str {
+    message_from_english(value).map_or(value, Message::text)
+}
+
 impl Message {
     pub const fn key(self) -> &'static str {
         self.0
@@ -214,5 +231,14 @@ mod tests {
             serde_json::to_value(message).unwrap(),
             Locale::En.text(message.key())
         );
+    }
+
+    #[test]
+    fn canonical_adapter_errors_recover_only_exact_catalog_messages() {
+        let message = message_from_english(english("managed.conflict")).unwrap();
+        assert_eq!(message.key(), "managed.conflict");
+        assert_eq!(serde_json::to_value(message).unwrap(), english("managed.conflict"));
+        assert!(message_from_english("untrusted {software} {source}").is_none());
+        assert_eq!(localize("untrusted {software}"), "untrusted {software}");
     }
 }

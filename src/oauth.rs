@@ -1,5 +1,8 @@
-//! Native OAuth login, OS credential storage and read-only model discovery.
-//! No model invocation permission is requested and no client secret is embedded.
+//! Native OAuth login, OS credential storage and read-only CLI discovery.
+//! Independent application grants live in `applications`; CLI login itself
+//! never requests model invocation or inherits another client's authority.
+
+pub mod applications;
 
 mod callback;
 mod protocol;
@@ -100,6 +103,19 @@ pub struct Model {
     pub name: String,
     pub apis: Vec<String>,
     pub pricing: Pricing,
+    pub metadata: Option<ModelMetadata>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ModelMetadata {
+    pub context_window: Option<u64>,
+    pub max_input_tokens: Option<u64>,
+    pub max_output_tokens: Option<u64>,
+    pub input_modalities: Option<Vec<String>>,
+    pub output_modalities: Option<Vec<String>>,
+    pub reasoning: Option<bool>,
+    pub tool_call: Option<bool>,
+    pub source: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -110,6 +126,10 @@ pub struct Pricing {
     pub input: Option<f64>,
     pub output: Option<f64>,
     pub request: Option<f64>,
+    pub cache_read: Option<f64>,
+    pub cache_write: Option<f64>,
+    pub group_multiplier: Option<f64>,
+    pub trust_multiplier: Option<f64>,
     pub final_cost_depends_on_usage: bool,
 }
 
@@ -125,7 +145,8 @@ impl Transport {
         Ok(Self {
             issuer: issuer.to_owned(),
             resource: format!("{issuer}/api/oauth2"),
-            client: Client::builder()
+            client: crate::http_client::builder()
+                .map_err(|_| AuthError::Network)?
                 .https_only(true)
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(Duration::from_secs(5))
@@ -356,4 +377,54 @@ pub fn models(issuer: &str) -> Result<ModelCatalog, AuthError> {
         return Err(AuthError::InvalidResponse);
     }
     Ok(catalog)
+}
+
+/// Read the issuer's exact integer-credit balance using the existing readonly grant.
+pub fn balance(issuer: &str) -> Result<Balance, AuthError> {
+    let transport = Transport::new(issuer)?;
+    let _lock = storage::lock()?;
+    let store = SystemStore::new(issuer)?;
+    balance_with(&transport, &store)
+}
+
+fn balance_with(transport: &Transport, store: &dyn SecretStore) -> Result<Balance, AuthError> {
+    let session = refresh(
+        transport,
+        store,
+        store.load()?.ok_or(AuthError::NotLoggedIn)?,
+    )?;
+    let body = transport.request(
+        transport
+            .client
+            .get(format!("{}/balance", transport.resource))
+            .bearer_auth(&session.credential.access),
+        64 * 1024,
+    )?;
+    let balance: Balance = serde_json::from_slice(&body).map_err(|_| AuthError::InvalidResponse)?;
+    if balance.schema_version != 2
+        || balance.currency != "USD"
+        || balance.credits_per_usd != "500000"
+        || balance.quota_per_unit != 500000
+        || balance.credit_unit != 1
+        || balance.quota.unsigned_abs() > 9_007_199_254_740_991
+        || balance.public_credit_balance != balance.quota.to_string()
+    {
+        return Err(AuthError::InvalidResponse);
+    }
+    Ok(balance)
+}
+
+/// Balance V2 preserves integer credit truth without calculating money with floats.
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct Balance {
+    pub schema_version: u8,
+    pub currency: String,
+    pub balance: serde_json::Number,
+    pub quota: i64,
+    pub public_credit_balance: String,
+    pub credit_unit: u8,
+    pub credits_per_usd: String,
+    pub quota_per_unit: u32,
+    pub updated_at: u64,
+    pub authorization_limit: Option<()>,
 }
