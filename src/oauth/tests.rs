@@ -312,3 +312,106 @@ fn existing_login_is_not_silently_replaced_or_reauthorized() {
     ));
     assert_eq!(store.writes.get(), 0);
 }
+
+#[test]
+fn balance_uses_refreshed_readonly_grant_and_preserves_exact_credits() {
+    let payload = serde_json::json!({"schema_version":2,"currency":"USD","balance":-0.00014,
+        "quota":-70,"public_credit_balance":"-70","credit_unit":1,"credits_per_usd":"500000",
+        "quota_per_unit":500000,"updated_at":1792000000,"authorization_limit":null});
+    let (transport, task) = server(vec![(200, token_body()), (200, payload.to_string())]);
+    let store = MemoryStore::new(&transport.issuer, None);
+    assert_eq!(
+        serde_json::to_value(balance_with(&transport, &store).unwrap()).unwrap(),
+        payload
+    );
+    let requests = task.join().unwrap();
+    assert!(requests[1].starts_with("GET /api/oauth2/balance "));
+    assert!(requests[1].contains(&token("lmm_at_", 3)));
+}
+
+#[test]
+fn balance_rejects_unknown_units_and_keeps_failure_bodies_private() {
+    for (status, body, expected) in [
+        (
+            200,
+            serde_json::json!({"schema_version":1,"balance":0}).to_string(),
+            AuthError::InvalidResponse,
+        ),
+        (503, "PRIVATE_BALANCE_BODY".into(), AuthError::Network),
+        (401, "PRIVATE_BALANCE_BODY".into(), AuthError::Unauthorized),
+    ] {
+        let (transport, task) = server(vec![(200, token_body()), (status, body)]);
+        let store = MemoryStore::new(&transport.issuer, None);
+        assert_eq!(balance_with(&transport, &store), Err(expected));
+        assert_eq!(task.join().unwrap().len(), 2);
+    }
+}
+
+#[test]
+fn balance_rejects_inconsistent_integer_denominations() {
+    let valid = serde_json::json!({"schema_version":2,"currency":"USD","balance":1,
+        "quota":500000,"public_credit_balance":"500000","credit_unit":1,"credits_per_usd":"500000",
+        "quota_per_unit":500000,"updated_at":1792000000,"authorization_limit":null});
+    for (field, wrong) in [
+        ("currency", serde_json::json!("credits")),
+        ("quota", serde_json::json!(9007199254740992_i64)),
+        ("public_credit_balance", serde_json::json!("0")),
+        ("credits_per_usd", serde_json::json!("1")),
+        ("authorization_limit", serde_json::json!({"unknown":true})),
+    ] {
+        let mut payload = valid.clone();
+        payload[field] = wrong;
+        let (transport, task) = server(vec![(200, token_body()), (200, payload.to_string())]);
+        let store = MemoryStore::new(&transport.issuer, None);
+        assert_eq!(
+            balance_with(&transport, &store),
+            Err(AuthError::InvalidResponse),
+            "{field}"
+        );
+        assert_eq!(task.join().unwrap().len(), 2);
+    }
+}
+
+#[test]
+fn production_transport_rejects_plain_http_before_connecting() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let transport = Transport::new("https://transport.synthetic.invalid").unwrap();
+    let url = format!("http://{}/must-not-connect", listener.local_addr().unwrap());
+    assert!(transport.client.get(url).send().is_err());
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+    );
+}
+
+#[test]
+fn catalog_retains_dynamic_metadata_and_effective_price_dimensions() {
+    let value = serde_json::json!({
+        "schema_version":1,"resource":"https://example.test/api/oauth2","updated_at":1,
+        "models":[{"id":"route","group":"default","upstream_model":"future-model","name":"Future",
+        "apis":["openai-completions"],"metadata":{"context_window":null,"max_input_tokens":64000,
+        "max_output_tokens":8000,"input_modalities":["text"],"output_modalities":["text"],
+        "reasoning":null,"tool_call":true,"source":"server","future_field":1},
+        "pricing":{"currency":"USD","unit":"million_tokens","price_basis":"effective_user_rates",
+        "input":1.0,"output":2.0,"cache_read":0.25,"cache_write":null,"request":null,
+        "group_multiplier":2.0,"trust_multiplier":0.5,"final_cost_depends_on_usage":true}}]
+    });
+    let catalog: ModelCatalog = serde_json::from_value(value).unwrap();
+    let model = &catalog.models[0];
+    assert_eq!(
+        model.metadata.as_ref().unwrap().max_input_tokens,
+        Some(64000)
+    );
+    let output = serde_json::to_value(&catalog).unwrap();
+    assert_eq!(
+        output["models"][0]["metadata"]["context_window"],
+        serde_json::Value::Null
+    );
+    assert_eq!(output["models"][0]["pricing"]["input"], 1.0);
+    assert_eq!(output["models"][0]["pricing"]["group_multiplier"], 2.0);
+    assert_eq!(output["models"][0]["pricing"]["trust_multiplier"], 0.5);
+    assert_eq!(
+        output["models"][0]["pricing"]["cache_write"],
+        serde_json::Value::Null
+    );
+}

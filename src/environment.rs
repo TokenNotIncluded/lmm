@@ -125,7 +125,10 @@ mod directory_tests {
             let home = PathBuf::from("/synthetic-home");
             let expected = Some(home.join(fallback).join("lmm"));
             assert_eq!(xdg_directory(None, Some(home.clone()), fallback), expected);
-            assert_eq!(xdg_directory(Some(OsString::new()), Some(home), fallback), expected);
+            assert_eq!(
+                xdg_directory(Some(OsString::new()), Some(home), fallback),
+                expected
+            );
         }
     }
 
@@ -142,9 +145,14 @@ mod directory_tests {
     #[test]
     fn relative_override_is_not_silently_replaced_by_home() {
         for value in ["state", "../state", "~/state", "$HOME/state"] {
-            assert!(xdg_directory(
-                Some(value.into()), Some(PathBuf::from("/synthetic-home")), ".local/state"
-            ).is_none());
+            assert!(
+                xdg_directory(
+                    Some(value.into()),
+                    Some(PathBuf::from("/synthetic-home")),
+                    ".local/state"
+                )
+                .is_none()
+            );
         }
     }
 
