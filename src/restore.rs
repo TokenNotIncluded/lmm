@@ -3,7 +3,7 @@
 //! Arrays and secrets require adapter-specific ownership; broad object replacement
 //! is deliberately rejected. A restore never renews any authorization.
 
-use crate::i18n::tr;
+use crate::i18n::msg;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -22,16 +22,16 @@ pub struct FieldChange {
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum RestoreError {
     /// A newer user or manager edit takes precedence over the backup.
-    #[error("{}", tr("restore.conflict"))]
+    #[error("{}", msg("restore.conflict"))]
     Conflict,
     /// Object/array replacement would have an overly broad scope.
-    #[error("{}", tr("restore.unsupported_shape"))]
+    #[error("{}", msg("restore.unsupported_shape"))]
     UnsupportedShape,
     /// Invalid JSON pointer or missing parent.
-    #[error("{}", tr("restore.invalid_pointer"))]
+    #[error("{}", msg("restore.invalid_pointer"))]
     InvalidPointer,
     /// A malformed or overlapping journal must not reorder writes.
-    #[error("{}", tr("restore.duplicate_field"))]
+    #[error("{}", msg("restore.duplicate_field"))]
     DuplicateField,
 }
 

@@ -1,26 +1,29 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use lmm::{
-    catalog,
-    i18n::{self, Locale},
-};
+use lmm::i18n::Locale;
 use serde_json::Value;
-use std::process::{Command, Output, Stdio};
+use std::{
+    ffi::OsString,
+    process::{Command, Output, Stdio},
+};
 
-fn run(args: &[&str], environment: &[(&str, &str)]) -> Output {
+fn run(args: &[&str], variables: &[(&str, &str)]) -> Output {
     let home = tempfile::tempdir().unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_lmm"));
     command
         .args(args)
         .env("HOME", home.path())
         .env("USERPROFILE", home.path())
+        .env("LOCALAPPDATA", home.path())
+        .env("XDG_STATE_HOME", home.path())
         .env("PATH", "")
         .env("NO_COLOR", "1")
+        .env("TERM", "dumb")
         .stdin(Stdio::null());
     for key in ["LMM_LANG", "LC_ALL", "LC_MESSAGES", "LANG"] {
         command.env_remove(key);
     }
-    command.envs(environment.iter().copied());
+    command.envs(variables.iter().copied());
     command.output().unwrap()
 }
 
@@ -28,161 +31,318 @@ fn stdout(output: &Output) -> &str {
     std::str::from_utf8(&output.stdout).unwrap()
 }
 
+fn detect(args: &[&str], variables: &[(&str, &str)]) -> Locale {
+    let args = args
+        .iter()
+        .map(|value| OsString::from(*value))
+        .collect::<Vec<_>>();
+    Locale::detect(&args, |key| {
+        variables
+            .iter()
+            .find(|(name, _)| *name == key)
+            .map(|(_, value)| OsString::from(*value))
+    })
+}
+
 #[test]
-fn help_uses_explicit_language_in_any_global_flag_position() {
-    for args in [
-        vec!["--lang", "zh-CN", "--help"],
-        vec!["--help", "--lang=zh-CN"],
-        vec!["status", "--help", "--lang", "zh-CN"],
-        vec!["--lang=zh-CN", "help", "status"],
+fn recognizes_language_tags_without_confusing_traditional_chinese_with_simplified() {
+    for name in ["en", "EN-us", "en_GB.UTF-8", "C", "C.UTF-8", "POSIX"] {
+        assert_eq!(Locale::from_name(name), Some(Locale::En), "{name}");
+    }
+    for name in [
+        "zh",
+        "zh-CN",
+        "zh_CN.UTF-8",
+        "zh_SG",
+        "zh-Hans",
+        "zh-Hans-CN",
+        "zh_CN@variant",
     ] {
-        let output = run(&args, &[("LMM_LANG", "en")]);
-        assert!(output.status.success(), "{:?}", output.stderr);
-        assert!(
-            stdout(&output).contains("用法"),
-            "{args:?}: {}",
-            stdout(&output)
-        );
-        assert!(stdout(&output).contains("选项"));
-        assert!(!stdout(&output).contains("cli.about"));
+        assert_eq!(Locale::from_name(name), Some(Locale::ZhCn), "{name}");
     }
-    let output = run(&["--lang", "en", "--help"], &[("LANG", "zh_CN.UTF-8")]);
-    assert!(stdout(&output).contains("Usage:"));
-    assert!(!stdout(&output).contains("用法"));
-}
-
-#[test]
-fn environment_precedence_normalization_and_fallback_work_in_real_processes() {
-    for (environment, chinese) in [
-        (vec![], false),
-        (vec![("LANG", "zh_CN.UTF-8")], true),
-        (vec![("LC_ALL", "C"), ("LANG", "zh_CN.UTF-8")], false),
-        (
-            vec![("LC_MESSAGES", "zh-Hans"), ("LANG", "en_US.UTF-8")],
-            true,
-        ),
-        (vec![("LMM_LANG", "en"), ("LC_ALL", "zh_CN.UTF-8")], false),
-        (vec![("LMM_LANG", ""), ("LANG", "zh_CN.UTF-8")], true),
-        (
-            vec![("LMM_LANG", "unknown"), ("LANG", "zh_CN.UTF-8")],
-            false,
-        ),
-        (vec![("LANG", "zh-TW")], false),
-    ] {
-        let output = run(&["--help"], &environment);
-        assert!(output.status.success());
-        assert_eq!(stdout(&output).contains("用法"), chinese, "{environment:?}");
+    for name in ["", "fr_FR.UTF-8", "zh-TW", "zh-Hant", "pirate"] {
+        assert_eq!(Locale::from_name(name), None, "{name}");
     }
 }
 
 #[test]
-fn translated_prose_does_not_change_json_keys_statuses_or_exit_codes() {
-    let mut reports = Vec::new();
-    for language in ["en", "zh-CN"] {
-        let output = run(
-            &[
-                "setup",
-                "astrbot",
-                "--dry-run",
-                "--json",
-                "--lang",
-                language,
-            ],
-            &[],
-        );
-        assert_eq!(output.status.code(), Some(3));
-        let mut report: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(report["outcome"], "blocked");
-        assert_eq!(report["plans"][0]["activation"], "preserve");
-        assert_eq!(report["targets"][0]["installation"], "unknown");
-        let blockers = report["plans"][0]["blockers"].as_array().unwrap();
-        assert!(
-            blockers
-                .iter()
-                .all(|message| !message.as_str().unwrap().starts_with("blocker."))
-        );
-        report.as_object_mut().unwrap().remove("checked_at");
-        report.as_object_mut().unwrap().remove("notes");
-        report["plans"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("blockers");
-        reports.push(report);
-    }
-    assert_eq!(reports[0], reports[1]);
-}
-
-#[test]
-fn oauth_errors_are_localized_without_changing_the_machine_code() {
-    for language in ["en", "zh-CN"] {
-        let output = run(
-            &[
-                "models",
-                "--issuer",
-                "http://127.0.0.1",
-                "--json",
-                "--lang",
-                language,
-            ],
-            &[],
-        );
-        assert_eq!(output.status.code(), Some(3));
-        let error: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(error["error_code"], "oauth.invalid_issuer");
-        assert_eq!(error["outcome"], "blocked");
-        assert_eq!(
-            error["error"],
-            i18n::text(Locale::from_environment(language), "oauth.invalid_issuer")
-        );
-    }
-}
-
-#[test]
-fn catalog_search_accepts_both_languages_and_serializes_descriptions() {
-    let english = catalog::search("Terminal coding assistant");
-    let chinese = catalog::search("终端编程助手");
+fn language_precedence_and_fallback_are_deterministic() {
     assert_eq!(
-        english.iter().map(|item| item.id).collect::<Vec<_>>(),
-        chinese.iter().map(|item| item.id).collect::<Vec<_>>()
+        detect(
+            &["lmm", "--lang", "en", "catalog"],
+            &[("LMM_LANG", "zh-CN")]
+        ),
+        Locale::En
     );
-    assert_eq!(english.len(), 3);
-    for language in ["en", "zh-CN"] {
-        let output = run(&["catalog", "astrbot", "--json", "--lang", language], &[]);
-        assert!(output.status.success());
-        let entries: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(
-            entries[0]["purpose"],
-            i18n::text(Locale::from_environment(language), "software.astrbot")
-        );
-        assert_eq!(entries[0]["id"], "astrbot");
-        assert_eq!(entries[0]["installation"], "unavailable");
-    }
-}
-
-#[test]
-fn provider_snapshot_is_language_independent() {
-    let english = run(&["presets", "--json", "--lang", "en"], &[]);
-    let chinese = run(&["presets", "--json", "--lang", "zh-CN"], &[]);
-    assert!(english.status.success());
-    assert!(chinese.status.success());
-    assert_eq!(english.stdout, chinese.stdout);
-}
-
-#[test]
-fn invalid_language_and_separator_do_not_execute_operations() {
     assert_eq!(
-        run(&["--lang", "unknown", "setup", "astrbot"], &[])
-            .status
-            .code(),
-        Some(2)
+        detect(&["lmm", "catalog", "--lang=zh-CN"], &[("LC_ALL", "C")]),
+        Locale::ZhCn
     );
-    assert_eq!(run(&["--lang"], &[]).status.code(), Some(2));
-    let output = run(&["catalog", "--json", "--", "--lang=zh-CN"], &[]);
+    assert_eq!(
+        detect(&["lmm"], &[("LMM_LANG", "zh-CN"), ("LC_ALL", "C")]),
+        Locale::ZhCn
+    );
+    assert_eq!(
+        detect(&["lmm"], &[("LC_ALL", "C"), ("LANG", "zh-CN")]),
+        Locale::En
+    );
+    assert_eq!(
+        detect(
+            &["lmm"],
+            &[("LC_MESSAGES", "zh_CN.UTF-8"), ("LANG", "en_US")]
+        ),
+        Locale::ZhCn
+    );
+    assert_eq!(
+        detect(&["lmm"], &[("LMM_LANG", ""), ("LANG", "zh_CN.UTF-8")]),
+        Locale::ZhCn
+    );
+    assert_eq!(
+        detect(&["lmm"], &[("LC_ALL", "fr_FR.UTF-8"), ("LANG", "zh-CN")]),
+        Locale::En
+    );
+    assert_eq!(detect(&["lmm"], &[]), Locale::En);
+}
+
+#[test]
+fn positional_data_after_double_dash_does_not_select_a_language() {
+    assert_eq!(
+        detect(&["lmm", "presets", "--", "--lang=zh-CN"], &[]),
+        Locale::En
+    );
+    let output = run(&["presets", "--", "--lang=zh-CN"], &[]);
     assert!(output.status.success());
+    assert!(stdout(&output).contains("Built-in provider presets"));
+}
+
+#[cfg(unix)]
+#[test]
+fn non_unicode_environment_does_not_panic_or_override_a_cli_choice() {
+    use std::os::unix::ffi::OsStringExt;
+    let args = vec![OsString::from("lmm")];
     assert_eq!(
-        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
-        serde_json::json!([])
+        Locale::detect(&args, |_| Some(OsString::from_vec(vec![0xff]))),
+        Locale::En
     );
+    let args = vec![OsString::from("lmm"), OsString::from("--lang=zh-CN")];
+    assert_eq!(
+        Locale::detect(&args, |_| Some(OsString::from_vec(vec![0xff]))),
+        Locale::ZhCn
+    );
+}
+
+#[test]
+fn root_and_subcommand_help_use_the_selected_language() {
+    for (language, heading) in [("en", "Usage:"), ("zh-CN", "用法：")] {
+        let root = run(&["--lang", language, "--help"], &[]);
+        assert!(root.status.success(), "{:?}", root.stderr);
+        assert!(stdout(&root).contains(heading));
+        assert!(stdout(&root).contains("--lang"));
+        for name in [
+            "presets",
+            "catalog",
+            "setup",
+            "install",
+            "login",
+            "logout",
+            "models",
+            "balance",
+            "authorize",
+            "receipt",
+            "credential",
+            "status",
+            "sync",
+            "update",
+            "doctor",
+            "restore",
+            "disconnect",
+            "uninstall",
+            "run",
+        ] {
+            let output = run(&[name, "--lang", language, "--help"], &[]);
+            assert!(output.status.success(), "{name}: {:?}", output.stderr);
+            assert!(
+                stdout(&output).contains(heading),
+                "{name}: {}",
+                stdout(&output)
+            );
+            assert!(stdout(&output).contains("--lang"));
+            assert!(!stdout(&output).contains("arg."));
+            assert!(!stdout(&output).contains("cmd."));
+        }
+        let help = run(&["--lang", language, "help", "login"], &[]);
+        assert!(help.status.success(), "{:?}", help.stderr);
+        assert!(stdout(&help).contains(heading));
+        assert!(stdout(&help).contains("--issuer"));
+    }
+}
+
+#[test]
+fn environment_selection_and_global_flag_work_for_real_commands() {
+    let chinese = run(&["catalog", "astrbot"], &[("LANG", "zh_CN.UTF-8")]);
+    assert!(stdout(&chinese).contains("消息平台"));
+    let english = run(
+        &["catalog", "astrbot", "--lang=en-US"],
+        &[("LMM_LANG", "zh-CN")],
+    );
+    assert!(stdout(&english).contains("messaging platforms"));
+    assert!(!stdout(&english).contains("消息平台"));
+    let chinese = run(
+        &["--lang=zh_CN.UTF-8", "catalog", "astrbot"],
+        &[("LC_ALL", "C")],
+    );
+    assert!(stdout(&chinese).contains("消息平台"));
+}
+
+#[test]
+fn invalid_explicit_language_fails_without_running_a_command() {
+    for args in [
+        vec!["--lang", "pirate", "catalog"],
+        vec!["catalog", "--lang"],
+        vec!["--lang=", "catalog"],
+    ] {
+        let output = run(&args, &[]);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+    }
+}
+
+#[test]
+fn runtime_errors_and_blocked_plans_are_translated() {
+    let english = run(&["--lang=en", "status", "unknown-software"], &[]);
+    let chinese = run(&["--lang=zh-CN", "status", "unknown-software"], &[]);
+    assert_eq!(english.status.code(), Some(2));
+    assert_eq!(chinese.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&english.stderr).contains("Unknown software ID"));
+    assert!(String::from_utf8_lossy(&chinese.stderr).contains("未知软件 ID"));
+    let chinese = run(&["setup", "astrbot", "--dry-run", "--lang=zh-CN"], &[]);
+    assert_eq!(chinese.status.code(), Some(3));
+    assert!(stdout(&chinese).contains("计划已阻止"));
+    assert!(stdout(&chinese).contains("写入适配器"));
+    let chinese = run(
+        &["models", "--issuer", "http://127.0.0.1", "--lang=zh-CN"],
+        &[],
+    );
+    assert_eq!(chinese.status.code(), Some(3));
+    assert!(String::from_utf8_lossy(&chinese.stderr).contains("HTTPS 域名"));
+}
+
+#[test]
+fn json_messages_and_codes_do_not_change_with_the_display_language() {
+    for arguments in [
+        vec!["catalog", "astrbot"],
+        vec!["presets", "local"],
+        vec!["status", "astrbot"],
+        vec!["doctor", "astrbot", "--report"],
+        vec!["setup", "astrbot", "--dry-run"],
+        vec!["status", "unknown-software"],
+        vec!["models", "--issuer", "http://127.0.0.1"],
+        vec!["login", "--non-interactive"],
+        vec!["balance", "--non-interactive"],
+        vec!["authorize", "cc-switch", "--non-interactive"],
+        vec!["setup", "pi", "--activate"],
+        vec!["status", "astrbot", "--node", "/unavailable-node"],
+        vec!["status", "pi", "--node", "/unavailable-node"],
+        vec!["setup", "astrbot", "--installation-id", "unused-instance"],
+    ] {
+        let mut results = Vec::new();
+        for language in ["en", "zh-CN"] {
+            let mut args = vec!["--json", "--lang", language];
+            args.extend_from_slice(&arguments);
+            let output = run(&args, &[]);
+            assert!(output.stderr.is_empty(), "{args:?}: {:?}", output.stderr);
+            let mut value: Value = serde_json::from_slice(&output.stdout).unwrap();
+            if let Some(object) = value.as_object_mut() {
+                object.remove("checked_at");
+            }
+            results.push((output.status.code(), value));
+        }
+        assert_eq!(results[0], results[1], "{arguments:?}");
+    }
+    let output = run(
+        &["status", "unknown-software", "--lang=zh-CN", "--json"],
+        &[],
+    );
+    let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["error_code"], "error.unknown_software");
+    assert!(
+        value["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("Unknown software ID")
+    );
+}
+
+#[test]
+fn search_matches_translated_descriptions_without_changing_identifiers() {
+    for query in ["messaging platforms", "  消息平台  "] {
+        let output = run(&["catalog", query, "--json", "--lang=en"], &[]);
+        let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value.as_array().unwrap().len(), 1);
+        assert_eq!(value[0]["id"], "astrbot");
+    }
+    let local = run(&["presets", "local", "--json"], &[]);
+    let translated = run(&["presets", "本地", "--json"], &[]);
+    assert_eq!(local.stdout, translated.stdout);
+}
+
+#[test]
+fn native_adapter_errors_translate_without_accessing_credentials() {
+    for (arguments, english, chinese) in [
+        (
+            vec!["setup", "pi", "--activate"],
+            "Pi activation requires",
+            "Pi 激活需要",
+        ),
+        (
+            vec!["authorize", "cc-switch", "--non-interactive"],
+            "system vault",
+            "系统凭据库",
+        ),
+        (
+            vec!["setup", "astrbot", "--installation-id", "unused-instance"],
+            "only to CC Switch",
+            "只适用于 CC Switch",
+        ),
+    ] {
+        for (locale, expected) in [("en", english), ("zh-CN", chinese)] {
+            let mut args = vec!["--lang", locale];
+            args.extend_from_slice(&arguments);
+            let output = run(&args, &[]);
+            assert_eq!(output.status.code(), Some(2), "{args:?}");
+            assert!(output.stdout.is_empty());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(expected),
+                "{args:?}: {:?}",
+                output.stderr
+            );
+        }
+    }
+}
+
+#[test]
+fn credential_command_keeps_its_no_json_contract_in_both_languages() {
+    for locale in ["en", "zh-CN"] {
+        let output = run(
+            &[
+                "--lang",
+                locale,
+                "--json",
+                "credential",
+                "cc-switch",
+                "--issuer",
+                "https://example.invalid",
+                "--installation-id",
+                "unused-instance",
+                "--grant-id",
+                "unused-grant",
+            ],
+            &[],
+        );
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("credential"));
+    }
 }
 
 #[cfg(unix)]

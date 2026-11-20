@@ -1,6 +1,6 @@
 //! Explicit project identities and independently stated integration capabilities.
 
-use crate::i18n::{self, Locale};
+use crate::i18n::{Locale, Message, msg};
 use serde::Serialize;
 
 /// A capability with no verified adapter must never be promoted by discovery.
@@ -9,8 +9,17 @@ use serde::Serialize;
 pub enum Capability {
     /// This release can inspect local evidence without modifying the target.
     InspectOnly,
+    /// Pinned Linux distribution lifecycle in LMM's own directory; this does
+    /// not imply qualified provider integration or real application calls.
+    ManagedDistribution,
     /// No implementation has been qualified for this action.
     Unavailable,
+}
+
+const fn managed_distribution(mut software: Software) -> Software {
+    software.installation = Capability::ManagedDistribution;
+    software.maintenance = Capability::ManagedDistribution;
+    software
 }
 
 /// An individual software distribution; desktop and CLI identities stay separate.
@@ -22,9 +31,8 @@ pub struct Software {
     pub name: &'static str,
     /// Canonical project identity, not a download mirror.
     pub source: &'static str,
-    /// Message key for intended use; serialized as a localized description.
-    #[serde(serialize_with = "i18n::serialize_message")]
-    pub purpose: &'static str,
+    /// Intended use.
+    pub purpose: Message,
     /// Installation capability of this LMM release.
     pub installation: Capability,
     /// Integration capability of this LMM release.
@@ -41,7 +49,7 @@ const fn software(
     id: &'static str,
     name: &'static str,
     source: &'static str,
-    purpose: &'static str,
+    purpose: Message,
     executables: &'static [&'static str],
 ) -> Software {
     Software {
@@ -63,42 +71,42 @@ pub static SOFTWARE: &[Software] = &[
         "astrbot",
         "AstrBot",
         "https://github.com/AstrBotDevs/AstrBot",
-        "software.astrbot",
+        msg("purpose.astrbot"),
         &["astrbot"],
     ),
-    software(
+    managed_distribution(software(
         "cc-switch",
         "CC Switch",
         "https://github.com/farion1231/cc-switch",
-        "software.cc_switch",
+        msg("purpose.cc_switch"),
         &["cc-switch"],
-    ),
+    )),
     software(
         "claude-code",
         "Claude Code CLI",
         "https://github.com/anthropics/claude-code",
-        "software.coding_cli",
+        msg("purpose.coding"),
         &["claude"],
     ),
     software(
         "codex",
         "OpenAI Codex CLI",
         "https://github.com/openai/codex",
-        "software.coding_cli",
+        msg("purpose.coding"),
         &["codex"],
     ),
     software(
         "gemini-cli",
         "Gemini CLI",
         "https://github.com/google-gemini/gemini-cli",
-        "software.coding_cli",
+        msg("purpose.coding"),
         &["gemini"],
     ),
     software(
         "pi",
         "Pi coding agent",
         "https://github.com/badlogic/pi-mono",
-        "software.pi",
+        msg("purpose.pi"),
         &["pi"],
     ),
 ];
@@ -110,15 +118,16 @@ pub fn find(id: &str) -> Option<&'static Software> {
 
 /// Search project identity and purpose without network access.
 pub fn search(query: &str) -> Vec<&'static Software> {
-    let query = query.to_lowercase();
+    let query = query.trim().to_lowercase();
     SOFTWARE
         .iter()
         .filter(|item| {
             [item.id, item.name]
                 .iter()
                 .any(|text| text.to_lowercase().contains(&query))
-                || Locale::ALL.iter().any(|&locale| {
-                    i18n::text(locale, item.purpose)
+                || Locale::ALL.iter().any(|locale| {
+                    locale
+                        .text(item.purpose.key())
                         .to_lowercase()
                         .contains(&query)
                 })

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""Validate bundled UI catalogs and their Rust message references (stdlib only)."""
+"""Validate embedded translations and Rust references with the standard library."""
 from __future__ import annotations
 
 import json
 import re
 import sys
-from collections import Counter
 from pathlib import Path
-from string import Formatter
 
-CJK = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+ROOT = Path(__file__).resolve().parents[1]
+HAN = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f]")
 KEY = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\Z")
-REFERENCE = re.compile(r'\b(?:tr|trf!)\(\s*"([a-z0-9_.]+)"')
-FIELD = re.compile(r"[a-zA-Z][a-zA-Z0-9_-]*\Z")
+PLACEHOLDER = re.compile(r"\{([a-zA-Z][a-zA-Z0-9_-]*)\}")
+CALL_KEY = re.compile(r'(?<![\w.])(?:msg|text|english)\(\s*"([^"\n]+)"')
+MATCH_KEY = re.compile(r'Self::\w+\s*=>\s*"([a-z]+\.[a-z_]+)"')
 
 
 def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -32,20 +32,17 @@ def load_catalog(path: Path) -> dict[str, str]:
         if not KEY.fullmatch(key):
             raise ValueError(f"invalid message key: {key!r}")
         if not isinstance(message, str) or not message.strip():
-            raise ValueError(f"{key}: message must be a nonempty string")
-        if any(ord(c) < 32 and c not in "\n\t" for c in message):
+            raise ValueError(f"{key}: expected a nonempty string")
+        if any(ord(char) < 32 and char not in "\n\t" for char in message):
             raise ValueError(f"{key}: disallowed control character")
     return value
 
 
-def placeholders(message: str) -> Counter[str]:
-    result: Counter[str] = Counter()
-    for _, name, spec, conversion in Formatter().parse(message):
-        if name is not None:
-            if not FIELD.fullmatch(name) or spec or conversion:
-                raise ValueError(f"unsupported placeholder: {name!r}")
-            result[name] += 1
-    return result
+def placeholders(value: str) -> list[str]:
+    remainder = PLACEHOLDER.sub("", value)
+    if "{" in remainder or "}" in remainder:
+        raise ValueError(f"invalid placeholder syntax: {value!r}")
+    return sorted(PLACEHOLDER.findall(value))
 
 
 def validate(root: Path) -> list[str]:
@@ -56,51 +53,48 @@ def validate(root: Path) -> list[str]:
             catalogs[path.stem] = load_catalog(path)
         except (ValueError, OSError) as error:
             errors.append(f"{path.name}: {error}")
-    if "en" not in catalogs or "zh-CN" not in catalogs:
+    if not {"en", "zh-CN"}.issubset(catalogs):
         errors.append("both en.json and zh-CN.json are required")
-    english = catalogs.get("en", {})
-    for name, messages in catalogs.items():
-        missing = sorted(english.keys() - messages.keys())
-        extra = sorted(messages.keys() - english.keys())
+    reference = catalogs.get("en", {})
+    for locale, catalog in catalogs.items():
+        missing = sorted(reference.keys() - catalog.keys())
+        extra = sorted(catalog.keys() - reference.keys())
         if missing or extra:
-            errors.append(f"{name}: missing keys {missing}; extra keys {extra}")
-        for key, message in messages.items():
+            errors.append(f"{locale}: missing keys {missing}; extra keys {extra}")
+        for key, value in catalog.items():
             try:
-                fields = placeholders(message)
-                if key in english and fields != placeholders(english[key]):
-                    errors.append(f"{name}/{key}: placeholder mismatch")
+                fields = placeholders(value)
+                if key in reference and fields != placeholders(reference[key]):
+                    errors.append(f"{locale}.{key}: placeholders differ from English")
             except ValueError as error:
-                errors.append(f"{name}/{key}: {error}")
-    if any(CJK.search(message) for message in english.values()):
+                errors.append(f"{locale}.{key}: {error}")
+    if any(HAN.search(value) for value in reference.values()):
         errors.append("en: unexpected CJK text in the English catalog")
-    sources = sorted((root / "src").rglob("*.rs"))
-    if not sources:
+    used: set[str] = set()
+    paths = sorted((root / "src").rglob("*.rs"))
+    if not paths:
         errors.append("no Rust source files found")
-    for path in sources:
-        text = path.read_text(encoding="utf-8")
-        production = "" if path.name == "tests.rs" else re.split(
-            r"#\[cfg\(test\)\]\s*mod\s+\w+\s*\{", text, maxsplit=1
-        )[0]
-        for line, content in enumerate(production.splitlines(), 1):
-            if CJK.search(content):
-                errors.append(f"{path.relative_to(root)}:{line}: move CJK UI text to locales")
-        references = set(REFERENCE.findall(production))
-        references.update(re.findall(r'\btext\([^,\n]+,\s*"([a-z0-9_.]+)"', production))
-        if path.name == "catalog.rs":
-            references.update(re.findall(r'"(software\.[a-z0-9_]+)"', text))
-        for key in sorted(references - english.keys()):
-            errors.append(f"{path.relative_to(root)}: missing message {key}")
+    for path in paths:
+        source = path.read_text(encoding="utf-8")
+        if HAN.search(source):
+            errors.append(f"{path.relative_to(root)}: move CJK UI text to locales/")
+        used.update(CALL_KEY.findall(source))
+        used.update(MATCH_KEY.findall(source))
+    for key in sorted(used - reference.keys()):
+        errors.append(f"missing message {key}")
+    unused = sorted(reference.keys() - used)
+    if unused:
+        errors.append(f"unused message keys: {unused}")
     return errors
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
-    errors = validate(root)
+    errors = validate(ROOT)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    count = len(load_catalog(root / "locales/en.json"))
-    print(f"i18n checks passed: {count} keys per catalog; source references and placeholders match.")
+    count = len(load_catalog(ROOT / "locales/en.json"))
+    print(f"i18n: 2 catalogs, {count} keys; values, placeholders and runtime references verified")
     return 0
 
 

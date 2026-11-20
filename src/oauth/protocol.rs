@@ -1,6 +1,6 @@
 use super::{AuthError, CLIENT_ID, SCOPE};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rand::{RngCore, rngs::OsRng};
+use rand::{TryRng, rngs::SysRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -145,10 +145,10 @@ impl Handshake {
     pub fn new() -> Result<Self, AuthError> {
         let mut state = [0u8; 32];
         let mut verifier = [0u8; 32];
-        OsRng
+        SysRng
             .try_fill_bytes(&mut state)
             .map_err(|_| AuthError::Callback)?;
-        OsRng
+        SysRng
             .try_fill_bytes(&mut verifier)
             .map_err(|_| AuthError::Callback)?;
         let result = Self {

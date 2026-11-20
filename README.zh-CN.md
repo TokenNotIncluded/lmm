@@ -1,107 +1,72 @@
-<div align="center">
+# LMM CLI
 
-# lmm
+[English](README.md) · [使用指南](docs/usage.zh-CN.md) · [翻译指南](docs/i18n.md)
 
-**在终端使用 Language Model Mesh。**
+LMM（Language Model Mesh，语言模型网络）是独立的 Rust CLI，用于服务商预设查询、本地软件检查、账号模型目录与余额读取，以及范围明确的应用适配器。Cargo 包名为 `lmm-cli`，可执行文件为 `lmm`；构建和依赖锁文件独立于父项目服务。
 
-查询服务商预设、检查本地工具、读取 LMM 模型目录。
+当前源码是开发预览，包含显式安装的 Pi 1.2.0 SDK 的 Linux 适配器，以及 CC Switch 受管发行包适配器。计划、数据库写入或进程启动成功，均不能证明应用已通过 LMM 路由激活或模型调用可用。详细边界见[使用指南](docs/usage.zh-CN.md)、[受管发行包合同](docs/managed-distributions.md)和[原生接入证据](docs/native-credential-evidence.md)。
 
-[![Rust](https://img.shields.io/badge/Rust-1.88%2B-000000?style=flat-square&logo=rust)](Cargo.toml)
-[![CLI](https://img.shields.io/badge/CLI-lmm-2563eb?style=flat-square)](#开始使用)
-[![Languages](https://img.shields.io/badge/languages-English%20%7C%20简体中文-0f766e?style=flat-square)](#语言)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-64748b?style=flat-square)](LICENSE)
-
-[English](README.md) · **简体中文**
-
-[开始使用](#开始使用) · [命令](#命令) · [使用指南](docs/usage.zh-CN.md) · [贡献翻译](docs/i18n.md)
-
-</div>
-
----
-
-## 开始使用
-
-使用 `mise.toml` 固定的开发工具，从当前源码构建：
+## 构建当前源码
 
 ```sh
-git clone https://github.com/TokenNotIncluded/lmm.git
-cd lmm
 mise install
 mise exec -- cargo install --path . --locked
+lmm --lang zh-CN --help
+```
 
-lmm --help
+使用本仓库 `mise.toml` 固定的开发工具链（Rust 1.100.0）；Cargo 清单声明的最低版本为 Rust 1.99.1。构建需要本机编译工具。Linux OAuth 另需运行中的 Secret Service，Windows 和 macOS 使用系统凭据库。已发布包可能不同于当前源码；这里尚未提供面向无开发环境用户的独立安装器。
+
+## 选择语言
+
+```sh
+lmm --lang en catalog astrbot
+lmm catalog astrbot --lang zh-CN
+LMM_LANG=zh-CN lmm --help
+```
+
+全局 `--lang` 优先于 `LMM_LANG`、`LC_ALL`、`LC_MESSAGES`、`LANG` 中首个非空值。未知环境语言回退英文；不支持的显式参数会被拒绝。帮助和终端文字支持中英文；JSON 的目录用途、提示和已识别错误正文在两种语言下均保持固定英文。命令名、标识符、协议值和数字不变，详见[翻译指南](docs/i18n.md)。
+
+## 当前命令
+
+| 任务 | 入口 | 结果与边界 |
+| --- | --- | --- |
+| 服务商预设 | `lmm presets [query] --json` | 离线的 56 项预设快照；不配置服务商、不验证连通性 |
+| 软件目录 | `lmm catalog [query]` | 项目身份，以及分别列出的安装、接入、维护能力 |
+| 本地检查 | `lmm status [software] --json` | 路径线索、CC Switch 受管状态或显式选择的原生设置 |
+| 分享诊断 | `lmm doctor [software] --report --json` | 移除本地路径，明确保留未完成的验证项 |
+| CLI 账号 | `lmm login`、`models`、`balance`、`logout` | 浏览器 PKCE 和账号只读权限；不授予应用模型调用权限 |
+| CC Switch 受管程序 | `lmm install cc-switch --dry-run --json` | 固定官方版本计划；执行时需要精确 `plan_id` |
+| CC Switch 原生配置 | `lmm setup cc-switch --help` | 独立应用授权和仅添加的原生数据库事务；激活另行处理 |
+| Pi Provider | `lmm setup pi --help` | 显式指定 Node、Pi 1.2.0 SDK、项目和 agent 路径；授权保留在 Pi 内 |
+
+`--json` 禁用 CLI 提示；`--non-interactive` 不等待缺失输入。可能需要系统解锁的凭据操作会在访问凭据前拒绝无人值守模式。`--yes` 不能替代缺失的适配器、必要的计划 ID、应用同意或服务端消费上限。
+
+## 从只读命令开始
+
+```sh
 lmm presets deepseek --json
 lmm catalog
+lmm status astrbot --instance /absolute/path/to/AstrBot --json
+lmm doctor astrbot --instance /absolute/path/to/AstrBot --report --json
+lmm install cc-switch --dry-run --json
 ```
 
-Cargo 包名为 **`lmm-cli`**，命令名为 **`lmm`**。本仓库独立构建，不需要先启动 LMM 后端。源码构建需要 Rust 和本机编译工具；Linux 的 OAuth 登录还需要运行中的 Secret Service。
+显式路径属于运行 CLI 的当前操作系统。CLI 不扫描其他用户、远程系统或容器实例。请求写入之前，先阅读[使用指南](docs/usage.zh-CN.md)中的 Pi 设置检查、CC Switch 回执、OAuth、恢复和退出码说明。
 
-## 命令
-
-| 用途 | 命令 | 实际行为 |
-| --- | --- | --- |
-| 查询服务商 | `lmm presets [关键词]` | 离线搜索内置 Magpie 预设快照 |
-| 查询软件 | `lmm catalog [关键词]` | 搜索项目名称和用途说明 |
-| 检查软件 | `lmm status astrbot --instance /绝对路径` | 检查本地路径线索，不读取配置内容 |
-| 分享诊断 | `lmm doctor astrbot --report --json` | 输出未完成的诊断摘要，并移除本地路径 |
-| 读取账号模型 | `lmm login` → `lmm models --json` | 授权 CLI，再读取模型与价格，不调用模型 |
-| 预览接入 | `lmm setup astrbot --dry-run --json` | 列出计划和阻塞原因，不修改软件或配置 |
-
-**当前为开发预览。** 安装、接入写入、同步、更新、恢复、解除接入、卸载和启动尚未实现。这些命令会返回阻塞原因，不会把空操作报告为成功。目录条目不代表软件已经通过兼容性验证。
-
-`presets` 是服务商预设，`catalog` 是软件目录，`models` 是当前账号获准读取的模型。三者不混用。
-
-## 语言
-
-英文和简体中文随程序一起打包，不需要联网下载翻译，也不需要额外放置语言文件。
-
-```sh
-lmm --lang en --help
-lmm status astrbot --lang zh-CN
-LMM_LANG=zh-CN lmm catalog
-```
-
-选择顺序：**`--lang` → `LMM_LANG` → `LC_ALL` → `LC_MESSAGES` → `LANG` → 英文**。
-
-环境变量支持 `zh_CN.UTF-8`、`zh-Hans` 等常见写法。空值会被忽略，不支持的语言使用英文。`LC_ALL=C` 使用英文，但可被 `LMM_LANG` 或 `--lang` 覆盖。
-
-JSON 字段名、状态值、标识符、价格和时间戳不随语言改变；面向人的说明和消息会翻译。服务商原名和上游数据保持原样。
-
-## 登录
-
-```sh
-lmm login
-lmm models --json
-lmm logout
-```
-
-CLI 只申请**模型目录和余额读取权限**，不申请模型调用权限，也不替其他应用授权。凭据存入系统凭据库，不会退回到明文文件。
-
-浏览器必须能访问 CLI 所在机器的回环端口。`--no-browser` 只显示链接，**不是设备码登录**。认证命令暂不支持 `--non-interactive`；即使使用 `models --json`，系统仍可能要求解锁凭据库。
-
-自托管地址、回调等待时间、凭据保存和撤销行为见[使用指南](docs/usage.zh-CN.md)。
-
-## 开发
+## 开发与验证
 
 ```sh
 python3 scripts/check-i18n.py
 python3 scripts/test_i18n_checks.py
-mise exec -- cargo fmt --all --check
+mise exec -- cargo fmt --all -- --check
 mise exec -- cargo test --locked
 mise exec -- cargo clippy --locked --all-targets --all-features -- -D warnings
-mise exec -- cargo build --locked --release
 ```
 
-[贡献指南](AGENTS.md) · [翻译指南](docs/i18n.md) · [产品需求](docs/requirements.zh-CN.md) · [Magpie 功能对照](docs/magpie-parity.md)
+测试使用隔离 fixture。两项 Linux 凭据迁移检查需要显式启用并提供隔离的 Secret Service；普通测试不能代替各操作系统真实凭据库验收。本地验证不会发布 crate、正式版本或生产部署。
 
-## 退出码
+## 范围与来源
 
-| 退出码 | 含义 |
-| --- | --- |
-| `0` | 查询已完成；仍需检查各层状态，不能据此认定软件可用 |
-| `2` | 参数不完整或无效、目标未知、选择失败或输出失败 |
-| `3` | 操作被阻止、能力未实现或诊断未完成 |
+[原始需求](docs/requirements.zh-CN.md)继续作为产品目标；[Magpie 对照](docs/magpie-parity.md)基于固定上游版本记录已实现能力与剩余工作。LMM 将行为移植到 Rust，不包装或启动 Magpie，也不依赖 Go 运行时。
 
-## 来源与许可证
-
-项目使用 [AGPL-3.0-only](LICENSE)。服务商预设来自固定版本的 [Magpie](third_party/magpie/NOTICE.md)，保留其 MIT 许可与来源说明。LMM 使用 Rust 实现，不包装或启动 Magpie。详见 [NOTICE](NOTICE)。
+项目使用 [AGPL-3.0-only](LICENSE) 许可。内置服务商快照参考 MIT 许可的 Magpie 材料，见 [NOTICE](NOTICE) 和[第三方来源记录](third_party/magpie/NOTICE.md)。静态预设不代表当前账号有权限，也不代表运行时兼容。

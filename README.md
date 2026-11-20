@@ -1,107 +1,72 @@
-<div align="center">
+# LMM CLI
 
-# lmm
+[简体中文](README.zh-CN.md) · [Usage guide](docs/usage.md) · [Translation guide](docs/i18n.md)
 
-**Language Model Mesh, from your terminal.**
+LMM (Language Model Mesh) is an independent Rust CLI for provider presets, local software inspection, account catalog and balance reads, and explicitly scoped application adapters. The Cargo package is `lmm-cli`; the executable is `lmm`. Its build and dependency lockfile are independent of the parent service.
 
-Explore provider presets, inspect local tools, and read your LMM model catalog.
+This source tree is a development preview. It includes a Linux adapter for an explicitly installed Pi 1.2.0 SDK and a managed CC Switch distribution adapter. A successful plan, database update or process launch does not establish that an application is active on an LMM route or that a model call works. The [usage guide](docs/usage.md), [managed distribution contract](docs/managed-distributions.md) and [native integration evidence](docs/native-credential-evidence.md) describe these boundaries.
 
-[![Rust](https://img.shields.io/badge/Rust-1.88%2B-000000?style=flat-square&logo=rust)](Cargo.toml)
-[![CLI](https://img.shields.io/badge/CLI-lmm-2563eb?style=flat-square)](#quick-start)
-[![Languages](https://img.shields.io/badge/languages-English%20%7C%20简体中文-0f766e?style=flat-square)](#language)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-64748b?style=flat-square)](LICENSE)
-
-**English** · [简体中文](README.zh-CN.md)
-
-[Quick start](#quick-start) · [Commands](#commands) · [Usage guide](docs/usage.md) · [Contribute translations](docs/i18n.md)
-
-</div>
-
----
-
-## Quick start
-
-Build the current source with the tools pinned in `mise.toml`:
+## Build this source revision
 
 ```sh
-git clone https://github.com/TokenNotIncluded/lmm.git
-cd lmm
 mise install
 mise exec -- cargo install --path . --locked
+lmm --lang en --help
+```
 
-lmm --help
+Use this repository's `mise.toml` for the pinned development toolchain (Rust 1.100.0); the package declares Rust 1.99.1 as its minimum. Building needs native compilation tools. Linux OAuth also needs a running Secret Service; Windows and macOS use their system credential stores. Published packages may differ from this source revision. A standalone installer for users without a development environment is not provided here.
+
+## Choose a language
+
+```sh
+lmm --lang en catalog astrbot
+lmm catalog astrbot --lang zh-CN
+LMM_LANG=zh-CN lmm --help
+```
+
+The global `--lang` flag takes precedence over the first nonempty value in `LMM_LANG`, `LC_ALL`, `LC_MESSAGES` and `LANG`. Unknown environment locales fall back to English; an unsupported explicit flag is rejected. Help and terminal prose are translated. JSON, including catalog purposes, notes and recognized error messages, remains canonical English in both languages. Command names, identifiers, protocol values and numeric data do not change. See [Translations](docs/i18n.md).
+
+## Available commands
+
+| Task | Entry point | Result and boundary |
+| --- | --- | --- |
+| Provider presets | `lmm presets [query] --json` | Offline snapshot of 56 presets; no provider configuration or connectivity test |
+| Software catalog | `lmm catalog [query]` | Project identities and separate installation/integration/maintenance capability fields |
+| Local inspection | `lmm status [software] --json` | Path evidence, managed CC Switch state, or explicitly selected native settings |
+| Shareable diagnosis | `lmm doctor [software] --report --json` | Redacts local paths; incomplete verification remains explicit |
+| CLI account | `lmm login`, `models`, `balance`, `logout` | Browser PKCE and read-only account scopes; no application model-call grant |
+| Managed CC Switch | `lmm install cc-switch --dry-run --json` | Fixed official release plan; applying it requires the exact `plan_id` |
+| Native CC Switch configuration | `lmm setup cc-switch --help` | Separate application grant and add-only native database transactions; activation is separate |
+| Pi Provider | `lmm setup pi --help` | Explicit Node, Pi 1.2.0 SDK, project and agent paths; authorization stays in Pi |
+
+`--json` disables CLI prompts. `--non-interactive` does not wait for missing input. Credential-store operations that may require unlocking reject unattended use before accessing credentials. `--yes` cannot replace a missing adapter, a required plan ID, application consent or a server-enforced spending limit.
+
+## Start with read-only commands
+
+```sh
 lmm presets deepseek --json
 lmm catalog
+lmm status astrbot --instance /absolute/path/to/AstrBot --json
+lmm doctor astrbot --instance /absolute/path/to/AstrBot --report --json
+lmm install cc-switch --dry-run --json
 ```
 
-The Cargo package is **`lmm-cli`**; the executable is **`lmm`**. This repository builds independently of the LMM backend. Source builds require Rust and native build tools. Linux OAuth also needs a running Secret Service.
+Explicit paths refer to the operating system running the CLI. The CLI does not scan other users, remote systems or container instances. The [usage guide](docs/usage.md) explains Pi settings inspection, CC Switch receipts, OAuth, recovery and exit codes before any write is requested.
 
-## Commands
-
-| Task | Command | What it does |
-| --- | --- | --- |
-| Explore providers | `lmm presets [query]` | Search the bundled Magpie snapshot, offline |
-| Explore software | `lmm catalog [query]` | Search project identities and software descriptions |
-| Inspect a tool | `lmm status astrbot --instance /absolute/path` | Check local path evidence without reading configuration contents |
-| Share diagnostics | `lmm doctor astrbot --report --json` | Remove local paths from an incomplete diagnostic report |
-| Read account models | `lmm login` → `lmm models --json` | Authorize the CLI, then read models and prices without model calls |
-| Preview integration | `lmm setup astrbot --dry-run --json` | Show a blocked plan; do not change software or configuration |
-
-**Development preview.** Software installation, integration writes, sync, updates, restore, disconnection, removal, and launch are not implemented. These commands report blockers instead of claiming success. Catalog entries are not compatibility guarantees.
-
-`presets` lists bundled provider metadata. `catalog` lists software. `models` reads models authorized for your account. These are separate resources.
-
-## Language
-
-English and Simplified Chinese are bundled in the binary. No translation download or extra runtime files are needed.
-
-```sh
-lmm --lang en --help
-lmm status astrbot --lang zh-CN
-LMM_LANG=zh-CN lmm catalog
-```
-
-Selection order: **`--lang` → `LMM_LANG` → `LC_ALL` → `LC_MESSAGES` → `LANG` → English**.
-
-Environment values such as `zh_CN.UTF-8` and `zh-Hans` are recognized. Empty values are ignored. Unsupported languages fall back to English. `LC_ALL=C` selects English unless overridden by `LMM_LANG` or `--lang`.
-
-JSON field names, status values, identifiers, prices, and timestamps do not change with language. Human-readable descriptions and messages do. Original provider names and upstream data are preserved.
-
-## Login
-
-```sh
-lmm login
-lmm models --json
-lmm logout
-```
-
-Login requests **catalog and balance read access only**. It does not grant model invocation or authorize other applications. Credentials stay in the system credential store; there is no plaintext-file fallback.
-
-A browser must reach the CLI's local callback port. `--no-browser` prints the link but is **not** device-code login. Authentication commands do not support `--non-interactive`; even `models --json` may require the operating system to unlock its credential store.
-
-See the [usage guide](docs/usage.md) for trusted self-hosted issuers, callback timeouts, credential storage, and revocation behavior.
-
-## Develop
+## Develop and verify
 
 ```sh
 python3 scripts/check-i18n.py
 python3 scripts/test_i18n_checks.py
-mise exec -- cargo fmt --all --check
+mise exec -- cargo fmt --all -- --check
 mise exec -- cargo test --locked
 mise exec -- cargo clippy --locked --all-targets --all-features -- -D warnings
-mise exec -- cargo build --locked --release
 ```
 
-[Contributor guide](AGENTS.md) · [Translation guide](docs/i18n.md) · [Product requirements (Chinese)](docs/requirements.zh-CN.md) · [Magpie comparison (Chinese)](docs/magpie-parity.md)
+Tests use isolated fixtures. The two Linux credential migration checks are opt-in and require an explicitly isolated Secret Service; ordinary tests do not certify live credential stores on every operating system. Local validation does not publish a crate, release or production deployment.
 
-## Exit codes
+## Scope and attribution
 
-| Code | Meaning |
-| --- | --- |
-| `0` | A query completed; inspect its reported state before assuming a tool is usable |
-| `2` | Invalid or missing arguments, unknown target, selection failure, or output error |
-| `3` | Blocked operation, unavailable capability, or incomplete diagnostic check |
+The [original requirements](docs/requirements.zh-CN.md) remain the product target. The [Magpie comparison](docs/magpie-parity.md) records implemented features and remaining work against a pinned upstream revision. LMM ports behavior to Rust and does not wrap or start Magpie or depend on a Go runtime.
 
-## Attribution
-
-Licensed under [AGPL-3.0-only](LICENSE). Provider preset data is derived from a pinned, MIT-licensed [Magpie](third_party/magpie/NOTICE.md) snapshot. LMM is implemented in Rust and does not wrap or run Magpie. See [NOTICE](NOTICE) for source attribution.
+LMM is licensed under [AGPL-3.0-only](LICENSE). The bundled provider snapshot derives from MIT-licensed Magpie material; see [NOTICE](NOTICE) and [third-party provenance](third_party/magpie/NOTICE.md). Static presets are not a claim of current provider access or runtime compatibility.

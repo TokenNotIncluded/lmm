@@ -21,7 +21,7 @@ class CatalogChecks(unittest.TestCase):
         self.root = Path(self.temporary.name)
         (self.root / "src").mkdir()
         (self.root / "locales").mkdir()
-        (self.root / "src/main.rs").write_text('fn main() { tr("test.message"); }\n', encoding="utf-8")
+        (self.root / "src/main.rs").write_text('fn main() { msg("test.message"); }\n', encoding="utf-8")
         self.write("en", {"test.message": "Hello {name}"})
         self.write("zh-CN", {"test.message": "你好，{name}"})
 
@@ -52,7 +52,7 @@ class CatalogChecks(unittest.TestCase):
                 self.assertTrue(CHECK.validate(self.root))
 
     def test_source_literals_and_missing_references_are_rejected(self) -> None:
-        (self.root / "src/main.rs").write_text('fn main() { tr("test.missing"); println!("中文"); }', encoding="utf-8")
+        (self.root / "src/main.rs").write_text('fn main() { msg("test.missing"); println!("中文"); }', encoding="utf-8")
         errors = CHECK.validate(self.root)
         self.assertTrue(any("CJK UI text" in error for error in errors))
         self.assertTrue(any("missing message" in error for error in errors))
@@ -62,6 +62,33 @@ class CatalogChecks(unittest.TestCase):
             with self.subTest(message=message):
                 self.write("en", {"test.message": message})
                 self.assertTrue(CHECK.validate(self.root))
+
+    def test_required_catalogs_and_source_files_are_checked(self) -> None:
+        (self.root / "locales/zh-CN.json").unlink()
+        (self.root / "src/main.rs").unlink()
+        errors = CHECK.validate(self.root)
+        self.assertTrue(any("both en.json and zh-CN.json" in error for error in errors))
+        self.assertTrue(any("no Rust source" in error for error in errors))
+
+    def test_unused_keys_and_placeholder_counts_are_checked(self) -> None:
+        self.write("en", {"test.message": "Hello {name}", "test.unused": "unused"})
+        self.write("zh-CN", {"test.message": "Hello {name} {name}", "test.unused": "unused"})
+        errors = CHECK.validate(self.root)
+        self.assertTrue(any("unused message keys" in error for error in errors))
+        self.assertTrue(any("placeholders differ" in error for error in errors))
+
+    def test_catalog_shape_key_format_and_literal_braces_are_checked(self) -> None:
+        for value in [[], {}, {"bad key": "value"}, {"test.message": "{{name}}"}]:
+            with self.subTest(value=value):
+                self.write("en", value)
+                self.assertTrue(CHECK.validate(self.root))
+
+    def test_all_runtime_reference_helpers_are_recognized(self) -> None:
+        for call in ['msg("test.message")', 'text("test.message")', 'english("test.message")',
+                     'crate::i18n::english("test.message")', 'msg(\n"test.message")']:
+            with self.subTest(call=call):
+                (self.root / "src/main.rs").write_text(f"fn main() {{ {call}; }}\n", encoding="utf-8")
+                self.assertEqual(CHECK.validate(self.root), [])
 
 
 if __name__ == "__main__":

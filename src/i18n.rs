@@ -1,17 +1,14 @@
-//! Embedded UI messages. Protocol values, identifiers, and provider data are not translated.
-//!
-//! The CLI chooses one immutable language before building its command tree. Libraries
-//! can use `text` with an explicit locale without changing process-wide state.
+//! Embedded CLI translations. Machine-readable messages always use English.
 
-use serde::Serializer;
-use std::{
-    collections::BTreeMap,
-    env,
-    ffi::OsString,
-    sync::{LazyLock, OnceLock},
-};
+use serde::{Serialize, Serializer};
+use std::{collections::BTreeMap, ffi::OsString, fmt, str::FromStr, sync::OnceLock};
 
-/// Languages with complete, bundled message catalogs.
+type Catalog = BTreeMap<String, String>;
+static ENGLISH: OnceLock<Catalog> = OnceLock::new();
+static CHINESE: OnceLock<Catalog> = OnceLock::new();
+static LANGUAGE: OnceLock<Locale> = OnceLock::new();
+
+/// Languages shipped with the binary; no files or network are needed at runtime.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Locale {
     #[default]
@@ -29,16 +26,8 @@ impl Locale {
         }
     }
 
-    const fn index(self) -> usize {
-        match self {
-            Self::En => 0,
-            Self::ZhCn => 1,
-        }
-    }
-
-    /// Normalize common BCP 47 and POSIX locale names. Unsupported locales use English.
-    /// Traditional Chinese is not silently labeled as a Simplified Chinese translation.
-    pub fn from_environment(value: &str) -> Self {
+    /// Recognize supported language tags and common POSIX locale names.
+    pub fn from_name(value: &str) -> Option<Self> {
         let name = value
             .trim()
             .split(['.', '@'])
@@ -47,135 +36,160 @@ impl Locale {
             .replace('_', "-")
             .to_ascii_lowercase();
         match name.as_str() {
-            "zh" | "zh-cn" | "zh-sg" | "zh-hans" => Self::ZhCn,
-            name if name.starts_with("zh-hans-") => Self::ZhCn,
-            _ => Self::En,
+            "c" | "posix" | "en" => Some(Self::En),
+            "zh" | "zh-cn" | "zh-sg" | "zh-hans" => Some(Self::ZhCn),
+            name if name.starts_with("en-") => Some(Self::En),
+            name if name.starts_with("zh-hans-") => Some(Self::ZhCn),
+            _ => None,
         }
     }
-}
 
-type Messages = BTreeMap<String, String>;
-
-// Keep parse failures visible to tests. A damaged/missing translation must not
-// crash a read-only command or change its authorization behavior.
-static CATALOGS: LazyLock<[Result<Messages, serde_json::Error>; 2]> = LazyLock::new(|| {
-    [
-        serde_json::from_str(include_str!("../locales/en.json")),
-        serde_json::from_str(include_str!("../locales/zh-CN.json")),
-    ]
-});
-static ACTIVE_LOCALE: OnceLock<Locale> = OnceLock::new();
-
-/// CLI argument > LMM_LANG > LC_ALL > LC_MESSAGES > LANG > English.
-/// Empty values are ignored. An unsupported high-priority value still overrides
-/// lower-priority values, so LC_ALL=C always selects English.
-fn choose_locale(explicit: Option<&str>, environment: &[Option<&str>]) -> Locale {
-    explicit
-        .into_iter()
-        .chain(environment.iter().copied().flatten())
-        .find(|value| !value.trim().is_empty())
-        .map(Locale::from_environment)
-        .unwrap_or_default()
-}
-
-/// Read only the global language option before Clap generates help. Clap remains
-/// responsible for validation. Never interpret positional text after `--` as flags.
-fn language_argument(args: &[OsString]) -> Option<String> {
-    let mut args = args.iter().skip(1);
-    let mut language = None;
-    while let Some(arg) = args.next() {
-        if arg == "--" {
-            break;
-        }
-        if arg == "--lang" {
-            let value = args.next()?;
-            if value == "--" {
+    /// Resolve language before clap renders help. Clap still validates all arguments.
+    /// Stop at `--` so positional data cannot change the language.
+    pub fn detect(args: &[OsString], get_env: impl Fn(&str) -> Option<OsString>) -> Self {
+        let mut selected = None;
+        let mut args = args.iter().skip(1);
+        while let Some(arg) = args.next() {
+            if arg == "--" {
                 break;
             }
-            language = value.to_str().map(str::to_owned);
-        } else if let Some(value) = arg.to_str().and_then(|arg| arg.strip_prefix("--lang=")) {
-            language = Some(value.to_owned());
+            let value = if arg == "--lang" {
+                args.next().and_then(|value| value.to_str())
+            } else {
+                arg.to_str().and_then(|arg| arg.strip_prefix("--lang="))
+            };
+            if let Some(value) = value {
+                selected = Self::from_name(value);
+            }
         }
+        if let Some(locale) = selected {
+            return locale;
+        }
+        for key in ["LMM_LANG", "LC_ALL", "LC_MESSAGES", "LANG"] {
+            if let Some(value) = get_env(key).filter(|value| !value.is_empty()) {
+                return value.to_str().and_then(Self::from_name).unwrap_or_default();
+            }
+        }
+        Self::default()
     }
-    language
+
+    fn catalog(self) -> &'static Catalog {
+        let (cache, source) = match self {
+            Self::En => (&ENGLISH, include_str!("../locales/en.json")),
+            Self::ZhCn => (&CHINESE, include_str!("../locales/zh-CN.json")),
+        };
+        cache.get_or_init(|| {
+            serde_json::from_str(source)
+                .unwrap_or_else(|error| panic!("invalid embedded translation catalog: {error}"))
+        })
+    }
+
+    /// Missing translations fall back to English, then to the visible message key.
+    pub fn text(self, key: &'static str) -> &'static str {
+        self.catalog()
+            .get(key)
+            .or_else(|| Self::En.catalog().get(key))
+            .map_or(key, String::as_str)
+    }
 }
 
-/// Initialize once, before building CLI help or starting an OAuth callback thread.
-/// This reads no files, credentials, or network and does not modify the environment.
-pub fn init_from_args(args: &[OsString]) {
-    let explicit = language_argument(args);
-    let values = ["LMM_LANG", "LC_ALL", "LC_MESSAGES", "LANG"].map(|key| env::var(key).ok());
-    let environment = values.each_ref().map(|value| value.as_deref());
-    let selected = choose_locale(explicit.as_deref(), &environment);
-    let _ = ACTIVE_LOCALE.set(selected);
+impl FromStr for Locale {
+    type Err = Message;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::from_name(value).ok_or(msg("error.unsupported_language"))
+    }
+}
+
+/// Select once at process startup. Tests should use explicit locales instead.
+pub fn initialize(locale: Locale) -> Result<(), Locale> {
+    LANGUAGE.set(locale)
 }
 
 pub fn locale() -> Locale {
-    ACTIVE_LOCALE.get().copied().unwrap_or_default()
+    LANGUAGE.get().copied().unwrap_or_default()
 }
 
-/// Look up a message in one language, then English, then the stable message key.
-/// Missing keys are also rejected by the catalog checks in CI.
-pub fn text(locale: Locale, key: &str) -> &str {
-    CATALOGS[locale.index()]
-        .as_ref()
-        .ok()
-        .and_then(|messages| messages.get(key))
-        .or_else(|| {
-            CATALOGS[Locale::En.index()]
-                .as_ref()
-                .ok()
-                .and_then(|messages| messages.get(key))
-        })
-        .map(String::as_str)
-        .unwrap_or(key)
+/// A stable message key, separated from both presentation and serialization.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Message(&'static str);
+
+pub const fn msg(key: &'static str) -> Message {
+    Message(key)
 }
 
-/// Look up a fixed message for the active CLI language.
-pub fn tr(key: &'static str) -> &'static str {
-    text(locale(), key)
+pub fn text(key: &'static str) -> &'static str {
+    msg(key).text()
 }
 
-/// Serialize a catalog description, not its internal message key.
-pub fn serialize_message<S: Serializer>(key: &str, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(text(locale(), key))
+/// Canonical prose for machine-readable adapter results and legacy error APIs.
+pub fn english(key: &'static str) -> &'static str {
+    Locale::En.text(key)
 }
 
-/// Substitute named placeholders in one pass. Values are never parsed as templates.
-/// Callers must still escape untrusted terminal values (for example with Debug).
-fn interpolate(template: &str, arguments: &[(&str, String)]) -> String {
-    let mut output = String::with_capacity(template.len());
-    let mut remaining = template;
-    while let Some((prefix, after_open)) = remaining.split_once('{') {
-        output.push_str(prefix);
-        let Some((name, after_close)) = after_open.split_once('}') else {
-            output.push('{');
-            output.push_str(after_open);
-            return output;
-        };
-        if let Some((_, value)) = arguments.iter().find(|(key, _)| *key == name) {
-            output.push_str(value);
-        } else {
-            output.push('{');
-            output.push_str(name);
-            output.push('}');
-        }
-        remaining = after_close;
+/// Recover a message at the presentation boundary of an existing String API.
+/// Only exact catalog values are recognized; external text is never a template.
+pub fn message_from_english(value: &str) -> Option<Message> {
+    Locale::En
+        .catalog()
+        .iter()
+        .find_map(|(key, candidate)| (candidate == value).then_some(Message(key.as_str())))
+}
+
+pub fn localize(value: &str) -> &str {
+    match message_from_english(value) {
+        Some(message) => message.text(),
+        None => value,
     }
-    output.push_str(remaining);
-    output
 }
 
-pub fn format(key: &str, arguments: &[(&str, String)]) -> String {
-    interpolate(text(locale(), key), arguments)
+impl Message {
+    pub const fn key(self) -> &'static str {
+        self.0
+    }
+
+    pub fn text(self) -> &'static str {
+        locale().text(self.0)
+    }
+
+    /// Substitute named values once; inserted text is never parsed as a template.
+    pub fn render(self, values: &[(&str, &str)]) -> String {
+        self.render_in(locale(), values)
+    }
+
+    pub fn render_in(self, locale: Locale, values: &[(&str, &str)]) -> String {
+        let mut rest = locale.text(self.0);
+        let mut output = String::with_capacity(rest.len());
+        while let Some(start) = rest.find('{') {
+            output.push_str(&rest[..start]);
+            let Some(end) = rest[start..].find('}').map(|end| start + end) else {
+                output.push_str(&rest[start..]);
+                return output;
+            };
+            let name = &rest[start + 1..end];
+            match values.iter().find(|(key, _)| *key == name) {
+                Some((_, value)) => output.push_str(value),
+                None => output.push_str(&rest[start..=end]),
+            }
+            rest = &rest[end + 1..];
+        }
+        output.push_str(rest);
+        output
+    }
 }
 
-/// Format a catalog message with named, reorderable placeholders.
-#[macro_export]
-macro_rules! trf {
-    ($key:literal $(, $name:ident = $value:expr)* $(,)?) => {
-        $crate::i18n::format($key, &[$((stringify!($name), ($value).to_string())),*])
-    };
+impl fmt::Display for Message {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.text())
+    }
+}
+
+impl std::error::Error for Message {}
+
+impl Serialize for Message {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(Locale::En.text(self.0))
+    }
 }
 
 #[cfg(test)]
@@ -184,78 +198,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn locale_names_and_unsupported_languages_are_normalized() {
-        for name in [
-            "zh",
-            "zh_CN.UTF-8",
-            "ZH-cn",
-            "zh-Hans",
-            "zh_Hans_CN",
-            "zh_SG@variant",
-        ] {
-            assert_eq!(Locale::from_environment(name), Locale::ZhCn, "{name}");
-        }
-        for name in [
-            "en",
-            "en_US.UTF-8",
-            "C",
-            "C.UTF-8",
-            "POSIX",
-            "fr_FR",
-            "zh-TW",
-            "zh-Hant",
-            "",
-        ] {
-            assert_eq!(Locale::from_environment(name), Locale::En, "{name}");
-        }
-    }
-
-    #[test]
-    fn locale_precedence_and_empty_values_are_explicit() {
-        assert_eq!(choose_locale(Some("en"), &[Some("zh-CN")]), Locale::En);
-        assert_eq!(
-            choose_locale(None, &[Some("zh-CN"), Some("C")]),
-            Locale::ZhCn
-        );
-        assert_eq!(
-            choose_locale(None, &[None, Some("C"), Some("zh-CN")]),
-            Locale::En
-        );
-        assert_eq!(
-            choose_locale(None, &[Some(""), Some(" "), Some("zh-CN")]),
-            Locale::ZhCn
-        );
-        assert_eq!(
-            choose_locale(None, &[Some("fr"), Some("zh-CN")]),
-            Locale::En
-        );
-        assert_eq!(choose_locale(None, &[]), Locale::En);
-    }
-
-    #[test]
-    fn global_language_flag_is_found_before_help_but_not_after_separator() {
-        for words in [
-            vec!["lmm", "--lang", "zh-CN", "--help"],
-            vec!["lmm", "status", "--help", "--lang=zh-CN"],
-        ] {
-            let args: Vec<_> = words.into_iter().map(OsString::from).collect();
-            assert_eq!(language_argument(&args).as_deref(), Some("zh-CN"));
-        }
-        let args: Vec<_> = ["lmm", "presets", "--", "--lang=zh-CN"]
-            .into_iter()
-            .map(OsString::from)
-            .collect();
-        assert_eq!(language_argument(&args), None);
-    }
-
-    #[test]
-    fn bundled_catalogs_parse_and_have_matching_nonempty_keys() {
-        let english = CATALOGS[0].as_ref().unwrap();
-        assert!(!english.is_empty());
-        for catalog in CATALOGS.iter() {
-            let catalog = catalog.as_ref().unwrap();
+    fn shipped_catalogs_have_the_same_nonempty_keys() {
+        let reference = Locale::En.catalog();
+        assert!(!reference.is_empty());
+        for locale in Locale::ALL {
+            let catalog = locale.catalog();
             assert_eq!(
-                english.keys().collect::<Vec<_>>(),
+                reference.keys().collect::<Vec<_>>(),
                 catalog.keys().collect::<Vec<_>>()
             );
             assert!(catalog.values().all(|value| !value.trim().is_empty()));
@@ -263,21 +212,47 @@ mod tests {
     }
 
     #[test]
-    fn unknown_keys_are_safe_and_requested_locale_does_not_change_global_state() {
-        assert_eq!(text(Locale::ZhCn, "missing.key"), "missing.key");
-        assert_ne!(
-            text(Locale::En, "cli.about"),
-            text(Locale::ZhCn, "cli.about")
-        );
-        assert_eq!(locale(), Locale::En);
+    fn unknown_keys_remain_visible() {
+        assert_eq!(Locale::ZhCn.text("missing.test.key"), "missing.test.key");
     }
 
     #[test]
-    fn interpolation_allows_reordering_without_reinterpreting_values() {
-        let values = [("first", "{second}".to_owned()), ("second", "B".to_owned())];
-        assert_eq!(interpolate("{second}: {first}", &values), "B: {second}");
-        assert_eq!(interpolate("{missing}", &values), "{missing}");
-        assert_eq!(interpolate("literal {", &values), "literal {");
-        assert_eq!(interpolate("plain", &[]), "plain");
+    fn replacement_values_cannot_inject_other_placeholders() {
+        let output = msg("output.catalog_entry").render_in(
+            Locale::En,
+            &[
+                ("id", "{source}"),
+                ("name", "name"),
+                ("purpose", "purpose"),
+                ("source", "URL"),
+            ],
+        );
+        assert!(output.starts_with("{source} - name"));
+        assert!(output.contains("Source: URL"));
+    }
+
+    #[test]
+    fn serialization_does_not_depend_on_display_language() {
+        let message = msg("error.unknown_software");
+        assert_ne!(
+            Locale::En.text(message.key()),
+            Locale::ZhCn.text(message.key())
+        );
+        assert_eq!(
+            serde_json::to_value(message).unwrap(),
+            Locale::En.text(message.key())
+        );
+    }
+
+    #[test]
+    fn canonical_adapter_errors_recover_only_exact_catalog_messages() {
+        let message = message_from_english(english("managed.conflict")).unwrap();
+        assert_eq!(message.key(), "managed.conflict");
+        assert_eq!(
+            serde_json::to_value(message).unwrap(),
+            english("managed.conflict")
+        );
+        assert!(message_from_english("untrusted {software} {source}").is_none());
+        assert_eq!(localize("untrusted {software}"), "untrusted {software}");
     }
 }

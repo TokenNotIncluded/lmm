@@ -1,36 +1,76 @@
-name: CLI checks
+name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: cli-checks-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+  format:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-      - name: Validate translation catalogs
+      - name: Install the pinned formatter
+        shell: bash
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("mise.toml", "rb"))["tools"]["rust"]["version"])')
+          rustup toolchain install "$version" --profile minimal --component rustfmt
+          rustup override set "$version"
+      - name: Check formatting
+        run: |
+          cargo fmt --all
+          git diff --exit-code > "$RUNNER_TEMP/rustfmt.patch"
+      - name: Keep formatting corrections on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustfmt-patch
+          path: ${{ runner.temp }}/rustfmt.patch
+          retention-days: 7
+          if-no-files-found: ignore
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: |
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("mise.toml", "rb"))["tools"]["rust"]["version"])')
+          rustup toolchain install "$version" --profile minimal --component clippy
+          rustup override set "$version"
+      - name: Check translations
         run: |
           python3 scripts/check-i18n.py
           python3 scripts/test_i18n_checks.py
-      - name: Check formatting
-        run: mise exec -- cargo fmt --all --check
-      - name: Test CLI and library
-        run: mise exec -- cargo test --locked
-      - name: Check lints
-        run: mise exec -- cargo clippy --locked --all-targets --all-features -- -D warnings
-      - name: Check packaged locale files
+      - name: Run tests
         run: |
-          mise exec -- cargo package --list --locked > package-files.txt
-          grep -Fx 'locales/en.json' package-files.txt
-          grep -Fx 'locales/zh-CN.json' package-files.txt
-          grep -Fx 'README.zh-CN.md' package-files.txt
+          set -o pipefail
+          cargo test --locked 2>&1 | tee "$RUNNER_TEMP/tests.log"
+      - name: Check lints
+        run: |
+          set -o pipefail
+          cargo clippy --locked --all-targets --all-features -- -D warnings 2>&1 | tee "$RUNNER_TEMP/clippy.log"
+      - name: Verify source package
+        run: cargo package --locked
+      - name: Keep check logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-logs
+          path: ${{ runner.temp }}/*.log
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Keep the checked source package
+        uses: actions/upload-artifact@v4
+        with:
+          name: lmm-cli-source-${{ github.sha }}
+          path: target/package/*.crate
+          retention-days: 7
+          if-no-files-found: error

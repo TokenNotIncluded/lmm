@@ -1,5 +1,5 @@
 use super::AuthError;
-use crate::i18n::{self, Locale};
+use crate::i18n::{self, Locale, msg};
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
@@ -68,13 +68,14 @@ impl Callback {
     }
 }
 
-/// Fixed plain-text output; neither authorization codes nor request text are echoed.
+/// Fixed plain text; neither authorization codes nor request text are echoed.
 fn callback_response(accepted: bool, locale: Locale) -> String {
-    let body = if accepted {
-        i18n::text(locale, "callback.received")
+    let message = if accepted {
+        msg("callback.received")
     } else {
-        i18n::text(locale, "callback.invalid")
+        msg("callback.invalid")
     };
+    let body = locale.text(message.key());
     let status = if accepted {
         "200 OK"
     } else {

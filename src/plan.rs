@@ -1,6 +1,6 @@
 //! Policy decisions shared by future adapters; discovery never authorizes a write.
 
-use crate::i18n::tr;
+use crate::i18n::{Message, msg};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -44,13 +44,13 @@ pub enum Activation {
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PlanError {
     /// Unknown state must not be silently replaced with defaults.
-    #[error("{}", tr("plan.unknown_selection"))]
+    #[error("{}", msg("plan.unknown_selection"))]
     UnknownSelection,
     /// A revoked application must not be silently granted permission again.
-    #[error("{}", tr("plan.revoked_grant"))]
+    #[error("{}", msg("plan.revoked_grant"))]
     RevokedGrant,
     /// Cost checks must use a server-enforced reservation.
-    #[error("{}", tr("plan.paid_verification"))]
+    #[error("{}", msg("plan.paid_verification"))]
     PaidVerificationNotAuthorized,
 }
 
@@ -111,7 +111,7 @@ pub struct Preview {
     /// No discovered service is restarted.
     pub restart: bool,
     /// Specific missing prerequisites.
-    pub blockers: Vec<&'static str>,
+    pub blockers: Vec<Message>,
 }
 
 impl Preview {
@@ -131,9 +131,9 @@ impl Preview {
             paid_test: false,
             restart: false,
             blockers: vec![
-                tr("blocker.adapter"),
-                tr("blocker.application_grant"),
-                tr("blocker.compatibility"),
+                msg("plan.write_adapter"),
+                msg("plan.application_grant"),
+                msg("plan.unverified_target"),
             ],
         }
     }
