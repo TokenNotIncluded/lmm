@@ -68,6 +68,8 @@ lmm status cc-switch --instance /absolute/path/to/.cc-switch --json
 
 显式实例检查使用只读 SQLite 事务，要求 schema 24 和已核验的 `providers` 主键与列。仅查询 ID、应用类型、名称及数据库选择标志；不读取 `settings_config`、`meta` 或凭据内容。`selected_in_database` 不能证明本机 Codex/Claude 配置已经激活，也不能证明经过本地代理。
 
-`setup`、`sync` 和 `disconnect` 的完整应用接入仍需要独立应用授权与原生配置激活合同。现有 CLI 登录只拥有 `catalog:read balance:read`，不得把该 token 写进 CC Switch 的供应商配置。不得只修改 `is_current` 就声称完成激活，因为上游激活还写本机应用配置。这些尚未具备的流程继续返回明确阻塞，不返回空成功。
+应用配置使用独立于发行包管理的授权与事务路径。当前 `setup --add-only` 和 `sync` 通过显式实例的原生 SQLite 事务添加或更新 LMM，保留原模型选择；`restore --configuration --change` 按回执恢复受管理字段并拒绝后续编辑冲突。代码入口见 [applications_cli.rs](../src/applications_cli.rs) 与 [bindings.rs](../src/cc_switch/bindings.rs)。现有 CLI 登录只拥有 `catalog:read balance:read`，不会把该 token 写进供应商配置；独立应用授权仍需服务端对应合同与用户同意。
+
+完整激活和删除继续受原生应用状态限制。不能只修改 `is_current` 就声称完成激活，也不能只凭 SQLite 中未选中的标记删除可能被 live、代理或 Stack 引用的项目。这些操作需要 CC Switch 原生管理入口或独立审阅的上游集成，详见[原生接入证据](native-credential-evidence.md)。受管发行包成功、供应商记录存在和真实模型调用成功仍是不同结果。
 
 隔离测试使用合成发行包字节、临时目录和真实 SQLite；不下载或执行官方 AppImage，不访问真实账号或支付渠道。真实 Linux 图形环境运行、官方文件端到端下载与模型调用仍需独立验收。

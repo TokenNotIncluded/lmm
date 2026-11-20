@@ -46,7 +46,9 @@ jobs:
           rustup toolchain install "$version" --profile minimal --component clippy
           rustup override set "$version"
       - name: Check translations
-        run: python3 scripts/check-i18n.py
+        run: |
+          python3 scripts/check-i18n.py
+          python3 scripts/test_i18n_checks.py
       - name: Run tests
         run: |
           set -o pipefail

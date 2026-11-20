@@ -344,3 +344,29 @@ fn credential_command_keeps_its_no_json_contract_in_both_languages() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("credential"));
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn translated_output_keeps_untrusted_paths_escaped() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("line\n\u{1b}[31m{software}");
+    std::fs::create_dir(&path).unwrap();
+    for language in ["en", "zh-CN"] {
+        let output = run(
+            &[
+                "status",
+                "astrbot",
+                "--instance",
+                path.to_str().unwrap(),
+                "--lang",
+                language,
+            ],
+            &[],
+        );
+        assert!(output.status.success());
+        let text = stdout(&output);
+        assert!(!text.contains('\u{1b}'));
+        assert!(text.contains("\\n"));
+        assert!(text.contains("{software}"));
+    }
+}

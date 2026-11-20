@@ -19,6 +19,13 @@ pub enum Locale {
 impl Locale {
     pub const ALL: [Self; 2] = [Self::En, Self::ZhCn];
 
+    pub const fn tag(self) -> &'static str {
+        match self {
+            Self::En => "en",
+            Self::ZhCn => "zh-CN",
+        }
+    }
+
     /// Recognize supported language tags and common POSIX locale names.
     pub fn from_name(value: &str) -> Option<Self> {
         let name = value

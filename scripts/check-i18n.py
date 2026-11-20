@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Check embedded translations with only the Python standard library."""
+"""Validate embedded translations and Rust references with the standard library."""
 from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HAN = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f]")
+KEY = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\Z")
 PLACEHOLDER = re.compile(r"\{([a-zA-Z][a-zA-Z0-9_-]*)\}")
-CALL_KEY = re.compile(r'(?<![\w.])(?:msg|text|english)\("([^"\n]+)"\)')
+CALL_KEY = re.compile(r'(?<![\w.])(?:msg|text|english)\(\s*"([^"\n]+)"')
 MATCH_KEY = re.compile(r'Self::\w+\s*=>\s*"([a-z]+\.[a-z_]+)"')
 
 
@@ -17,9 +19,23 @@ def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError(f"duplicate translation key: {key}")
+            raise ValueError(f"duplicate key: {key}")
         result[key] = value
     return result
+
+
+def load_catalog(path: Path) -> dict[str, str]:
+    value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+    if not isinstance(value, dict) or not value:
+        raise ValueError("catalog must be a nonempty JSON object")
+    for key, message in value.items():
+        if not KEY.fullmatch(key):
+            raise ValueError(f"invalid message key: {key!r}")
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError(f"{key}: expected a nonempty string")
+        if any(ord(char) < 32 and char not in "\n\t" for char in message):
+            raise ValueError(f"{key}: disallowed control character")
+    return value
 
 
 def placeholders(value: str) -> list[str]:
@@ -29,33 +45,58 @@ def placeholders(value: str) -> list[str]:
     return sorted(PLACEHOLDER.findall(value))
 
 
-def main() -> None:
-    catalogs = {
-        path.stem: json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-        for path in sorted((ROOT / "locales").glob("*.json"))
-    }
-    reference = catalogs["en"]
+def validate(root: Path) -> list[str]:
+    errors: list[str] = []
+    catalogs: dict[str, dict[str, str]] = {}
+    for path in sorted((root / "locales").glob("*.json")):
+        try:
+            catalogs[path.stem] = load_catalog(path)
+        except (ValueError, OSError) as error:
+            errors.append(f"{path.name}: {error}")
+    if not {"en", "zh-CN"}.issubset(catalogs):
+        errors.append("both en.json and zh-CN.json are required")
+    reference = catalogs.get("en", {})
     for locale, catalog in catalogs.items():
-        if set(catalog) != set(reference):
-            raise ValueError(f"{locale}: missing={set(reference) - set(catalog)}, extra={set(catalog) - set(reference)}")
+        missing = sorted(reference.keys() - catalog.keys())
+        extra = sorted(catalog.keys() - reference.keys())
+        if missing or extra:
+            errors.append(f"{locale}: missing keys {missing}; extra keys {extra}")
         for key, value in catalog.items():
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"{locale}.{key}: expected a nonempty string")
-            if placeholders(value) != placeholders(reference[key]):
-                raise ValueError(f"{locale}.{key}: placeholders differ from English")
+            try:
+                fields = placeholders(value)
+                if key in reference and fields != placeholders(reference[key]):
+                    errors.append(f"{locale}.{key}: placeholders differ from English")
+            except ValueError as error:
+                errors.append(f"{locale}.{key}: {error}")
+    if any(HAN.search(value) for value in reference.values()):
+        errors.append("en: unexpected CJK text in the English catalog")
     used: set[str] = set()
-    for path in (ROOT / "src").rglob("*.rs"):
+    paths = sorted((root / "src").rglob("*.rs"))
+    if not paths:
+        errors.append("no Rust source files found")
+    for path in paths:
         source = path.read_text(encoding="utf-8")
         if HAN.search(source):
-            raise ValueError(f"{path.relative_to(ROOT)}: move Chinese UI text into locales/")
+            errors.append(f"{path.relative_to(root)}: move CJK UI text to locales/")
         used.update(CALL_KEY.findall(source))
         used.update(MATCH_KEY.findall(source))
-    unknown = used - set(reference)
-    unused = set(reference) - used
-    if unknown or unused:
-        raise ValueError(f"unknown message keys={unknown}; unused message keys={unused}")
-    print(f"i18n: {len(catalogs)} catalogs, {len(reference)} keys; placeholders and runtime references verified")
+    for key in sorted(used - reference.keys()):
+        errors.append(f"missing message {key}")
+    unused = sorted(reference.keys() - used)
+    if unused:
+        errors.append(f"unused message keys: {unused}")
+    return errors
+
+
+def main() -> int:
+    errors = validate(ROOT)
+    if errors:
+        print("\n".join(errors), file=sys.stderr)
+        return 1
+    count = len(load_catalog(ROOT / "locales/en.json"))
+    print(f"i18n: 2 catalogs, {count} keys; values, placeholders and runtime references verified")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
