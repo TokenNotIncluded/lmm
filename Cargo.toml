@@ -22,15 +22,15 @@ name = "lmm"
 path = "src/main.rs"
 
 [dependencies]
-clap = { version = "4.6.7", features = ["derive"] }
+clap = { version = "4.6.9", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
 zhex = { git = "https://github.com/LIghtJUNction/zhex.git" }
 thiserror = "2.0.21"
 base64 = "0.23.1"
-rand = "0.10.3"
-url = "2.5.8"
+rand = "0.10.4"
+url = "2.5.9"
 percent-encoding = "2.3.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "form", "json", "rustls"] }
 webpki-root-certs = "1.0.12"
@@ -38,9 +38,9 @@ keyring = { version = "4.2.0", default-features = false, features = ["v1"] }
 fs2 = "0.4.3"
 open = "5.4.5"
 httparse = "1.10.1"
-zeroize = { version = "1.9.1", features = ["derive"] }
+zeroize = { version = "1.9.2", features = ["derive"] }
 rusqlite = { version = "0.42.0", features = ["bundled"] }
-toml = { version = "=1.2.1", default-features = false, features = ["std", "serde", "parse"] }
+toml = { version = "=1.2.2", default-features = false, features = ["std", "serde", "parse"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1.1.6", features = ["fs"] }
