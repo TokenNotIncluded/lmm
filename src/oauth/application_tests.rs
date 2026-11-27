@@ -343,3 +343,78 @@ fn codex_refreshes_before_its_native_cache_could_outlive_the_access_token() {
     assert_eq!(transport.sent.borrow().len(), 1);
     assert_eq!(next.access, transport.next.access);
 }
+
+#[test]
+#[ignore = "uses the official CC Switch desktop's isolated, initialized database"]
+fn desktop_fixture_adds_one_synthetic_provider_without_activation() {
+    use crate::cc_switch::bindings;
+    use std::path::PathBuf;
+
+    let env_path = |key| {
+        PathBuf::from(std::env::var_os(key).unwrap())
+            .canonicalize()
+            .unwrap()
+    };
+    let runner = env_path("RUNNER_TEMP");
+    let home = env_path("CC_SWITCH_TEST_HOME");
+    assert!(home.starts_with(&runner) && home != runner);
+    let path = home.join(".cc-switch/cc-switch.db").canonicalize().unwrap();
+    assert!(path.starts_with(&home));
+    assert!(bindings::installations(&path).unwrap().is_empty());
+
+    let id = new_operation().unwrap();
+    let name = format!("LMM Quartz {}", &id[..8]);
+    let group = format!("group-{}", &id[..8]);
+    let model = format!("model-{}", &id[8..16]);
+    let model_id = format!(
+        "lmm:{}:{}",
+        URL_SAFE_NO_PAD.encode(&group),
+        URL_SAFE_NO_PAD.encode(&model)
+    );
+    let issuer = "https://cc-switch.example.invalid";
+    // The fixture supplies catalog data only. No keyring, token or network request is used.
+    let proof = VerifiedCatalog {
+        identity: ApplicationStatus {
+            contract: "lmm.application-grant.v1",
+            client_id: CLIENT,
+            issuer: issuer.to_owned(),
+            installation_id: id.clone(),
+            grant_id: format!("lmm_gr_{}", new_operation().unwrap()),
+            budget_credits: 1,
+            access_expires_at: now() + 300,
+            software_configuration_changed: false,
+        },
+        catalog: serde_json::from_value(serde_json::json!({
+            "schema_version": 1, "updated_at": now(), "resource": format!("{issuer}/api/oauth2"),
+            "models": [{"id":model_id, "group":group, "upstream_model":model, "name":name,
+                "apis":["openai-responses"], "pricing":{"currency":"USD", "unit":"tokens",
+                "price_basis":"fixture", "final_cost_depends_on_usage":true}}]
+        }))
+        .unwrap(),
+    };
+    let plan = bindings::preview_add(
+        &path,
+        &proof,
+        &model_id,
+        &name,
+        &env_path("LMM_CC_SWITCH_CLI"),
+    )
+    .unwrap();
+    let applied = bindings::apply(&path, &plan, &plan.plan_id, Some(&proof)).unwrap();
+    let readback = bindings::receipt(&path, issuer, &id, &applied.change_id).unwrap();
+    assert_eq!(applied.change_id, readback.change_id);
+    assert!(
+        readback.provider_present
+            && !readback.selection_changed
+            && !readback.live_application_changed
+    );
+    std::fs::write(
+        home.join("desktop-fixture.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "provider":name, "id":plan.provider_id, "issuer":issuer, "installation":id,
+            "change":applied.change_id
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+}
