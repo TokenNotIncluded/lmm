@@ -265,26 +265,43 @@ fn connection(path: &Path, write: bool) -> Result<Connection> {
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, i64>(5)?,
+                row.get::<_, bool>(3)?,
+                row.get::<_, Option<String>>(4)?,
             ))
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    if columns.len() != PROVIDER_COLUMNS.len()
+    // The pinned release creates the base columns first. Its v1-to-v2 migration
+    // adds exactly these native billing/type fields; the adapter never writes them.
+    let migration_columns = [
+        ("cost_multiplier", true, Some("'1.0'")),
+        ("limit_daily_usd", false, None),
+        ("limit_monthly_usd", false, None),
+        ("provider_type", false, None),
+    ];
+    let base_layout = columns.len() == PROVIDER_COLUMNS.len();
+    let migrated_layout = columns.len() == PROVIDER_COLUMNS.len() + migration_columns.len()
+        && migration_columns.iter().all(|(name, required, default)| {
+            columns.iter().any(|(actual, kind, pk, not_null, initial)| {
+                actual == name
+                    && kind.eq_ignore_ascii_case("TEXT")
+                    && *pk == 0
+                    && not_null == required
+                    && initial.as_deref() == *default
+            })
+        });
+    if !(base_layout || migrated_layout)
         || PROVIDER_COLUMNS.iter().any(|name| {
-            let expected = match *name {
-                "created_at" | "sort_index" => "INTEGER",
-                "is_current" | "in_failover_queue" => "BOOLEAN",
-                _ => "TEXT",
+            let (expected, pk) = match *name {
+                "id" => ("TEXT", 1),
+                "app_type" => ("TEXT", 2),
+                "created_at" | "sort_index" => ("INTEGER", 0),
+                "is_current" | "in_failover_queue" => ("BOOLEAN", 0),
+                _ => ("TEXT", 0),
             };
-            !columns
-                .iter()
-                .any(|(actual, kind, _)| actual == name && kind.eq_ignore_ascii_case(expected))
+            !columns.iter().any(|(actual, kind, key, _, _)| {
+                actual == name && kind.eq_ignore_ascii_case(expected) && *key == pk
+            })
         })
-        || !columns
-            .iter()
-            .any(|(name, _, key)| name == "id" && *key == 1)
-        || !columns
-            .iter()
-            .any(|(name, _, key)| name == "app_type" && *key == 2)
     {
         return Err(BindingError::Schema);
     }

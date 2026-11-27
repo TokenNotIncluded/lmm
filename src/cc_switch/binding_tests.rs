@@ -368,3 +368,48 @@ fn unknown_schema_existing_foreign_provider_and_broken_management_namespace_are_
         Err(BindingError::Schema)
     ));
 }
+
+#[test]
+fn pinned_migrated_billing_columns_are_preserved_and_unreviewed_layouts_are_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cc-switch.db");
+    let db = fixture(&path);
+    assert!(installations(&path).unwrap().is_empty());
+    db.execute_batch(
+        "ALTER TABLE providers ADD cost_multiplier TEXT NOT NULL DEFAULT '1.0';
+        ALTER TABLE providers ADD limit_daily_usd TEXT;
+        ALTER TABLE providers ADD limit_monthly_usd TEXT;
+        ALTER TABLE providers ADD provider_type TEXT;",
+    )
+    .unwrap();
+    assert!(installations(&path).unwrap().is_empty());
+    let (_, first) = added(&path, &db);
+    let stored = || {
+        db.query_row(
+        "SELECT cost_multiplier,limit_daily_usd,limit_monthly_usd,provider_type FROM providers WHERE id=?1 AND app_type='codex'",
+        [first.provider_id.as_str()],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?, row.get::<_, Option<String>>(3)?)),
+    ).unwrap()
+    };
+    assert_eq!(stored(), ("1.0".into(), None, None, None));
+    db.execute("UPDATE providers SET cost_multiplier='1.750',limit_daily_usd='0.010',limit_monthly_usd='0.099',provider_type='user_type' WHERE id=?1 AND app_type='codex'", [first.provider_id.as_str()]).unwrap();
+    let after_edit = stored();
+    let plan = preview_sync_in(&db, &path, current(&db), native("Alias", true), json!([])).unwrap();
+    apply_prepared(&path, &plan).unwrap();
+    assert_eq!(stored(), after_edit);
+    db.execute_batch("ALTER TABLE providers ADD unrelated TEXT;")
+        .unwrap();
+    assert!(matches!(installations(&path), Err(BindingError::Schema)));
+    let other = dir.path().join("other.db");
+    let changed = fixture(&other);
+    changed
+        .execute_batch(
+            "ALTER TABLE providers ADD cost_multiplier TEXT NOT NULL DEFAULT '9';
+        ALTER TABLE providers ADD limit_daily_usd TEXT;
+        ALTER TABLE providers ADD limit_monthly_usd TEXT;
+        ALTER TABLE providers ADD provider_type TEXT;",
+        )
+        .unwrap();
+    assert!(matches!(installations(&other), Err(BindingError::Schema)));
+}
